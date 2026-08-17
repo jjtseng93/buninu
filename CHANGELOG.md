@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.2 - 2026-08-17
+
+### Added
+
+- Add a "Commands inside the shell" section to README.md, split out of
+  Command-line information (which is only `bin/init.js`'s own flags, resolved
+  before Buninu starts). Lists everything in `apps/cmdlist` and moves the
+  `buninu-help`/`bunx` write-ups there, including a note that `bunx` can't
+  install anything on Android until
+  [oven-sh/bun#39084](https://github.com/oven-sh/bun/pull/39084) merges
+  upstream (Android's seccomp policy kills `bun i -g` with SIGSYS during bin
+  linking until then).
+
 ## 0.2.1 - 2026-08-17
 
 ### Added

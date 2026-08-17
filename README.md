@@ -109,10 +109,33 @@ outside the machine.
 --musl-la [args...]  Spawn musl-la directly and exit with its exit code
 ```
 
-These are flags to `bin/init.js` itself, resolved before Buninu starts. Once you
-are inside a running Buninu shell, run `buninu-help` instead: it renders
-README.md with jsmdcui's `--cat` mode and then shows `icon.png` with jsgotty's
-`--viu`. It is the command the default startup greeting points to.
+These are flags to `bin/init.js` itself, resolved before Buninu starts.
+
+## Commands inside the shell
+
+Once you are inside a running Buninu shell, these are available (the
+validated source list is `apps/cmdlist`; see [Add a command](#add-a-command)
+for how it works):
+
+```text
+glow        Render files with jsmdcui syntax highlighting
+jmi         Open files in the js micro editor
+jsgotty     Run a browser-accessible terminal
+jsmdcui     Edit and run interactive Markdown applications
+musl-la     Launch AArch64 ELF programs with the bundled musl loader
+buninu-help Render README.md with glow, then show icon.png with jsgotty --viu
+bunx        Globally install a package with bun, then exec its matching binary
+```
+
+`buninu-help` renders README.md with jsmdcui's `--cat` mode and then shows
+`icon.png` with jsgotty's `--viu`. It is the command the default startup
+greeting points to.
+
+`bunx <package>[@version] [args...]` installs with `bun i -g` and runs the
+matching binary. On Android, the underlying `bun i -g` currently needs
+[oven-sh/bun#39084](https://github.com/oven-sh/bun/pull/39084) merged
+upstream — without it, install is killed by SIGSYS (Android's seccomp policy
+rejects a syscall bin-linking uses), so `bunx` can't install anything there yet.
 
 ## Export
 
