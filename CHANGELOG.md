@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.1 - 2026-08-17
+
+### Added
+
+- Add `bunx`, a POSIX and Windows multicall command that ensures a package is
+  installed via `bun i -g` and then runs its matching binary, forwarding the
+  remaining arguments. Reinstall timing is adapted from real bunx's own rules
+  (an explicit dist-tag like `@latest` always reinstalls; otherwise a cached
+  binary is reused until it's older than 24h, or stat fails, or bun's own
+  `install/global/package.json` shows a different pinned version than the one
+  requested — this script has one shared install location instead of bunx's
+  per-version cache, so this last check substitutes for that). The global bin
+  directory is resolved via `bun pm bin -g`, falling back to
+  `$BUN_INSTALL`/`$HOME/.bun` on the very first install before that project
+  exists (which `bun pm bin -g` requires).
+  - Runs the target through `bun <target>` instead of exec'ing it directly:
+    on Android the resolved binary typically sits under storage mounted
+    noexec, so a direct exec is refused even though the file is readable and
+    executable-bit set. Trade-off: a package whose bin is a real native
+    executable rather than a JS/bun script won't run this way.
+  - On Android (detected the same way as `bin/init.js`, via
+    `/system/bin/linker64`), installs with `--backend=copyfile` since
+    hardlinks/symlinks frequently fail across Android's storage, and sets
+    `$PREFIX=/data/data/com.termux/files/usr` for the target process (not the
+    install step) so CLIs that check for a Termux environment still find one,
+    unless `$PREFIX` is already set.
+
 ## 0.2.0 - 2026-08-17
 
 ### Added
