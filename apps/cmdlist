@@ -1,0 +1,19 @@
+# syntax: markdown
+
+### glow — Render files with jsmdcui syntax highlighting
+glow
+
+### jmi — Open files in the js micro editor
+jmi
+
+### jsgotty — Run a browser-accessible terminal
+jsgotty
+
+### jsmdcui — Edit and run interactive Markdown applications
+jsmdcui
+
+### musl-la — Launch AArch64 ELF programs with the bundled musl loader
+musl-la
+
+### buninu-help — Render README.md with glow, then show icon.png with jsgotty --viu
+buninu-help

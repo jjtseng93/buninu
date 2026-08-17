@@ -1,0 +1,19 @@
+{
+  "name": "jsmdcui",
+  "version": "0.17.3",
+  "description": "Markdown as a Common UI for Terminals and Web Browsers",
+  "type": "module",
+  "main": "./src/index.js",
+  "license": "MIT",
+  "bin": {
+    "jsmdcui": "./src/index.js"
+  },
+  "scripts": {
+    "start": "bun ./src/index.js --demo",
+    "tui": "bun ./tui",
+    "wui": "bun ./wui",
+    "edit": "bun ./edit",
+    "check": "bun ./src/index.js --check",
+    "clean": "bun ./clean.sh"
+  }
+}

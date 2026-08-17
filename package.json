@@ -1,0 +1,31 @@
+{
+  "name": "buninu",
+  "version": "0.2.0",
+  "description": "Buninu is a portable, self-bootstrapping Unix-like userspace built on Bun that runs across operating systems",
+  "type": "module",
+  "main": "./bin/init.js",
+  "license": "MIT",
+  "bin": {
+    "buninu": "bin/init.js"
+  },
+  "buninu": {
+    "shell": {
+      "default": null,
+      "android": null,
+      "linux": null,
+      "macos": null,
+      "windows": null
+    },
+    "command": {
+      "default": "echo Welcome to Buninu, Try: glow apps/cmdlist, Help: buninu-help",
+      "android": "if command -v libmain.so >/dev/null 2>&1; then libmain.so; else printf '%s\\n' '# Welcome to Buninu Android' '- Try: glow apps/cmdlist' '- Help: buninu-help'; fi",
+      "linux": null,
+      "macos": null,
+      "windows": null
+    }
+  },
+  "scripts": {
+    "start": "bun ./apps/jsgotty/gotty.js --reconnect -r -w --webgl -a 127.0.0.1",
+    "check": "node --check ./bin/init.js"
+  }
+}
