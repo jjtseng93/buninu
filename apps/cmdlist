@@ -17,3 +17,6 @@ musl-la
 
 ### buninu-help — Render README.md with glow, then show icon.png with jsgotty --viu
 buninu-help
+
+### bunx — Globally install a package with bun, then exec its matching binary
+bunx
