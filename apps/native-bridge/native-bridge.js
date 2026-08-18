@@ -115,7 +115,22 @@ export async function main()
 
   try
   {
-    console.log(JSON.stringify(await call(name, args)))
+    const result = await call(name, args)
+
+    // Display-only: _discover's real value (an object, relied on as-is by
+    // rpc.mjs's own dispatch gate -- see FrontendDiscoverApi/rpcraw) is
+    // never touched. This only changes what gets printed here, one
+    // function per line instead of JSON.stringify's single-line output, so
+    // the list is easy to grep.
+    if (name === "_discover" && result && typeof result === "object")
+    {
+      const lines = Object.entries(result).map(([k, v]) => `"${k}":${JSON.stringify(v)}`)
+      console.log("{\n" + lines.join(",\n") + "\n}")
+    }
+    else
+    {
+      console.log(JSON.stringify(result))
+    }
   }
   catch (e)
   {
