@@ -26,3 +26,6 @@ native-bridge
 
 ### xclip — X11-style clipboard tool; -selection clipboard/-clip bridges to the real Android clipboard via native-bridge
 xclip
+
+### tts — Speak text through the Android host and wait for it to finish (-a to not wait)
+tts

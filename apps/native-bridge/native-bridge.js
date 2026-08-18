@@ -77,6 +77,23 @@ export const getcb = clipboardRead
 export const clipboardWrite = (text) => call("clipboardWrite", [text])
 export const setcb = clipboardWrite
 
+// TTS has no push/callback path over this protocol -- speak() only waits for
+// the host to accept the utterance, not for it to finish speaking, and
+// returns a handle immediately. Poll ttsStatus(handle) yourself ("speaking",
+// "done", "error", or "unknown" once a terminal state has already been
+// consumed) until it leaves "speaking"; apps/tts wraps that loop for the
+// common case instead of every caller writing its own.
+// Only text is required. 1.0 is normal for both speed and pitch, same
+// convention as termux-tts-speak's -p/-r; native-bridge does not assume any
+// particular caller's own default (jsmdcui's TTS_PITCH/TTS_SPEED, for
+// instance, default to 1/1.5 -- that is jsmdcui's own choice, read
+// TTS_PITCH/TTS_SPEED yourself if you want to honor it).
+export const speak = (text, speed = 1, pitch = 1, flush = false) =>
+  call("speak", [text, speed, pitch, flush])
+
+export const ttsStatus = (handle) => call("ttsStatus", [handle])
+export const tts = ttsStatus
+
 // `bun native-bridge.js <func> [args...]`, dispatched straight to call(func,
 // args) -- not restricted to toast/clipboardRead/clipboardWrite, exactly like
 // calling rpcraw(func, args) would be. This is a raw RPC, equivalent to a

@@ -26,6 +26,49 @@
   counts `process.platform === "android"`), so jsmdcui's middle-click paste,
   selection auto-sync, and `PastePrimary` command all work inside an APK with
   no further wiring once `xclip` is on `PATH`.
+- Add `speak`/`ttsStatus`/`tts` to native-bridge and the `tts` command
+  (`apps/tts`) built on them. Android's TextToSpeech completion signal is an
+  asynchronous callback with no way to push it to the far side over this
+  protocol, so `speak(text, speed, pitch, flush)` never blocks -- it returns
+  a handle immediately, and `ttsStatus(handle)`/`tts(handle)` (`"speaking"`,
+  `"done"`, `"error"`, or `"unknown"` once a terminal state has already been
+  consumed) is polled to find out when it finishes. `pitch`/`speed` both
+  default to `1.0` (normal), the same convention as `termux-tts-speak`'s
+  `-p`/`-r`; native-bridge passes them straight to `TextToSpeech.setPitch()`/
+  `setSpeechRate()` with no unit conversion. `tts <text>` wraps the polling
+  loop for the common case, blocking the calling process until speech
+  finishes -- the same as any other CLI tool that waits for the thing it
+  started, and, like real TTS tooling (espeak-ng has no timeout concept at
+  all; Windows SAPI's `WaitUntilDone` documents `-1`/infinite as the default),
+  waits as long as it takes with no wall-clock cap by default. Pass
+  `--timeout <ms>` to opt into a bounded wait instead, or `-a`/`--async` to
+  not wait at all. `--pitch`/`--speed` override the environment; without
+  them, `tts` reads `$TTS_PITCH`/`$TTS_SPEED` itself (falling back to `1` for
+  either that is unset), so jsmdcui's own `TTS_PITCH`/`TTS_SPEED` convention
+  (which it sets on `Bun.env` before spawning a TTS command, inherited here
+  like any other child process env var) is honored automatically -- jsmdcui's
+  own `detectTtsCmd()` already falls back to a bare `Bun.which("tts")` after
+  termux-tts-speak/espeak-ng/espeak, which this `tts` now satisfies, but that
+  particular fallback branch passes no `-p`/`-r`-equivalent flags at all, so
+  reading the env vars directly here is the only way `tts`'s pitch/speed
+  actually reaches Android's TTS engine through that path.
+- Give `xclip` and `tts` a real fallback on non-Android platforms too, since
+  Buninu is cross-OS, not Android-only. `xclip`'s `-selection clipboard`
+  register now also tries jsmdcui's own `ClipboardManager`
+  (`src/platform/clipboard.js`, imported directly rather than reimplemented)
+  on win32/darwin, then `wl-copy`/`wl-paste` on Linux; `tts` gains a
+  `detectTtsCmd()` copied verbatim from jsmdcui's `src/index.js` (same
+  pitch/speed/lang math and command construction, including the win32
+  PowerShell/SAPI SSML branch, copied rather than hand-retyped since that
+  quoting is easy to silently break and this had no Windows machine to
+  verify it on) covering termux-tts-speak/say/PowerShell/espeak-ng/espeak.
+  Both deliberately skip the one path that would reintroduce the exact
+  self-reference risk they otherwise avoid: `ClipboardManager`'s Linux-like
+  branch searches PATH for a binary named `xclip`, and jsmdcui's own
+  `detectTtsCmd()` ends with a `Bun.which("tts")` fallback -- since these two
+  commands are themselves registered as Buninu's `xclip`/`tts`, ahead of
+  anything else of the same name on PATH, using either the way jsmdcui does
+  from inside xclip.js/tts.js would just be each script invoking itself.
 
 ## 0.2.3 - 2026-08-18
 
