@@ -142,14 +142,25 @@ rejects a syscall bin-linking uses), so `bunx` can't install anything there yet.
 Export the current Buninu installation as a gzip-compressed tar archive:
 
 ```sh
-npx buninu --export
-npx buninu --export /path/to/buninu.tgz
+npx buninu@latest --export
+npx buninu@latest --export /path/to/buninu.tgz
 ```
 
 The default output is `./buninu.tgz`. The archive contains exactly one
 top-level directory so consumers can remove one component while extracting.
 Export requires `tar` in `PATH`; when replacing an existing output,
 Buninu restores the previous file if archive creation or replacement fails.
+
+Export this `package.json` on its own, instead of the whole installation:
+
+```sh
+npx buninu@latest --export-config
+npx buninu@latest --export-config /path/to/buninu.json
+```
+
+The default output is `./buninu.json`. This is the full `package.json` (not
+just the `buninu` section), so the output is ready to use as-is anywhere a
+complete replacement `package.json` is expected.
 
 ## Environment
 
@@ -261,6 +272,19 @@ Override it for one run with:
 
 ```sh
 bun ./bin/init.js --command "echo temporary command"
+```
+
+Set `buninu.exitAfterCmd` to `true` to exit once `buninu.command` finishes
+instead of falling back to an interactive shell. It defaults to `false`,
+which is the current fall-back-to-shell behavior described above.
+
+```json
+{
+  "buninu": {
+    "command": { "default": "echo Welcome to Buninu" },
+    "exitAfterCmd": true
+  }
+}
 ```
 
 ## Shell selection (optional)

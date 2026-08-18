@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.3 - 2026-08-18
+
+### Added
+
+- Add `buninu.exitAfterCmd` package.json setting (default `false`). When
+  `true`, the shell/PTY exits with `buninu.command`'s status instead of
+  falling back to an interactive shell once the command finishes; `false`
+  keeps the existing fall-back-to-shell behavior.
+- Add `--export-config [output.json]`, which writes this entire `package.json`
+  to `buninu.json` in the current directory by default (like `--export`, the
+  output path can be overridden), instead of exporting the whole installation
+  like `--export` does.
+
 ## 0.2.2 - 2026-08-17
 
 ### Added

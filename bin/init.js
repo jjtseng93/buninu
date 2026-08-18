@@ -27,6 +27,7 @@ Init options:
   --readme               Render README.md in the terminal and exit
   --changelog            Render CHANGELOG.md in the terminal and exit
   --export [output.tgz]  Export this Buninu installation (default: ./buninu.tgz)
+  --export-config [output.json]  Export this package.json (default: ./buninu.json)
   --shell <path|name>    Override buninu.shell for this run
   --command <command>    Override buninu.command for this run
 
@@ -42,10 +43,13 @@ Package configuration:
   package.json contains a buninu section for default and platform settings.
   buninu.shell          Select the shell to start
   buninu.command        Run a startup command before entering the shell
+  buninu.exitAfterCmd   Exit after buninu.command instead of falling back to
+                         the shell (default: false)
 
 All other options are forwarded to jsgotty. Without buninu.command, the
 selected shell starts directly. With a command, it runs from the package.json
-directory and then returns to the interactive shell regardless of exit status.
+directory and then returns to the interactive shell regardless of exit status,
+unless buninu.exitAfterCmd is true, in which case it exits instead.
 `;
 }
 
@@ -66,6 +70,12 @@ async function handleInformationArguments(arguments_) {
   const exportOption = readExportArgument(arguments_);
   if (exportOption) {
     await exportInstallation(exportOption.output);
+    return true;
+  }
+
+  const exportConfigOption = readExportConfigArgument(arguments_);
+  if (exportConfigOption) {
+    await exportConfig(exportConfigOption.output);
     return true;
   }
 
@@ -100,6 +110,22 @@ function readExportArgument(arguments_) {
     if (argument.startsWith("--export=")) {
       const output = argument.slice("--export=".length);
       if (!output) fail("--export= requires an output path");
+      return { output };
+    }
+  }
+  return null;
+}
+
+function readExportConfigArgument(arguments_) {
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === "--export-config") {
+      const next = arguments_[index + 1];
+      return { output: next || "buninu.json" };
+    }
+    if (argument.startsWith("--export-config=")) {
+      const output = argument.slice("--export-config=".length);
+      if (!output) fail("--export-config= requires an output path");
       return { output };
     }
   }
@@ -142,6 +168,13 @@ async function exportInstallation(output) {
   }
 
   if (exportError) fail(exportError?.message || String(exportError));
+  console.log(outputPath);
+}
+
+async function exportConfig(output) {
+  const outputPath = resolve(process.cwd(), output);
+  const packageJsonPath = resolve(REPO_ROOT, "package.json");
+  await Bun.write(outputPath, Bun.file(packageJsonPath));
   console.log(outputPath);
 }
 
@@ -460,16 +493,25 @@ function readInitArguments(arguments_) {
   return { shell, command, forwarded };
 }
 
-function shellCommandArguments(shell, command) {
+function shellCommandArguments(shell, command, exitAfterCmd) {
   if (!command) return [shell];
 
   const shellName = basename(shell).toLowerCase();
   if (shellName === "cmd" || shellName === "cmd.exe") {
+    if (exitAfterCmd) return [shell, "/d", "/s", "/c", command];
     const quotedShell = `"${shell.replaceAll('"', '""')}"`;
     return [shell, "/d", "/s", "/c", `${command} & ${quotedShell}`];
   }
 
   if (["powershell", "powershell.exe", "pwsh", "pwsh.exe"].includes(shellName)) {
+    if (exitAfterCmd) {
+      return [
+        shell,
+        "-NoLogo",
+        "-Command",
+        `& { ${command}; if (-not $?) { Write-Error 'Startup command failed' } }`,
+      ];
+    }
     const escapedShell = shell.replaceAll("'", "''");
     return [
       shell,
@@ -483,7 +525,7 @@ function shellCommandArguments(shell, command) {
     `buninu_command=$1; shift; ( eval "$buninu_command" ); status=$?; ` +
     `if [ "$status" -ne 0 ]; then ` +
     `echo "buninu: startup command failed with exit $status" >&2; ` +
-    `fi; exec "$0"`;
+    (exitAfterCmd ? `fi; exit "$status"` : `fi; exec "$0"`);
   // Pass both the shell and startup command as argv instead of interpolating
   // them into the wrapper. This keeps the wrapper single-line and avoids LF
   // (Ctrl+J) characters in its process-list representation.
@@ -539,6 +581,7 @@ const configuredCommand =
       commandConfiguration?.default ??
       null;
 const startupCommand = initArguments.command ?? configuredCommand;
+const exitAfterCmd = Boolean(pkg.buninu?.exitAfterCmd);
 
 const forwardedArguments = initArguments.forwarded;
 const hasExplicitPort = forwardedArguments.some((argument) =>
@@ -559,7 +602,7 @@ const child = Bun.spawn(
     ...command,
     ...portArguments,
     ...forwardedArguments,
-    ...shellCommandArguments(environment.shell, startupCommand),
+    ...shellCommandArguments(environment.shell, startupCommand, exitAfterCmd),
   ],
   {
     cwd: rootDir,
