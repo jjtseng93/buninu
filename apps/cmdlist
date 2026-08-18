@@ -20,3 +20,6 @@ buninu-help
 
 ### bunx — Globally install a package with bun, then exec its matching binary
 bunx
+
+### xclip — X11-style clipboard tool; -selection clipboard/-clip bridges to the real Android clipboard via native-bridge
+xclip
