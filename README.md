@@ -128,6 +128,9 @@ bunx          Globally install a package with bun, then exec its matching binary
 native-bridge Call the Android host app (toast, clipboard, speak) over PKG_BRIDGE_SOCK
 xclip         X11-style clipboard tool; -selection clipboard/-clip bridges to the system clipboard
 tts           Speak text and wait for it to finish (-a to not wait)
+showimg       Shorthand for jsgotty --viu
+rz            Receive a file over ZMODEM
+sz            Send a file over ZMODEM
 ```
 
 `buninu-help` renders README.md with jsmdcui's `--cat` mode and then shows
@@ -163,6 +166,11 @@ timeout unless you pass `--timeout`. Works on Android, macOS, Windows, and
 Linux (via espeak-ng/espeak). `--pitch`/`--speed` fall back to
 `$TTS_PITCH`/`$TTS_SPEED` when not given explicitly, so jsmdcui's own
 pitch/speed setting is honored automatically.
+
+`rz [target-dir]` and `sz <file> [more files...]` are thin `bin/`-only
+wrappers around `apps/jsgotty/rz.js`/`sz.js`, transferring files over ZMODEM
+through the same terminal connection jsgotty already renders in a browser or
+WebView.
 
 ## Export
 
