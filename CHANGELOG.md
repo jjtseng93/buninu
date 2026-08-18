@@ -11,7 +11,8 @@
 - Add `--export-config [output.json]`, which writes this entire `package.json`
   to `buninu.json` in the current directory by default (like `--export`, the
   output path can be overridden), instead of exporting the whole installation
-  like `--export` does.
+  like `--export` does. If the output path already exists, it now asks for
+  confirmation (`[y/N]`) before overwriting.
 
 ## 0.2.2 - 2026-08-17
 

@@ -4,6 +4,7 @@ import pkg from "../package.json" with { type: "json" };
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { tmpdir as systemTmpDir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
@@ -173,6 +174,18 @@ async function exportInstallation(output) {
 
 async function exportConfig(output) {
   const outputPath = resolve(process.cwd(), output);
+
+  if (existsSync(outputPath)) {
+    const rl = createInterface({ input: process.stdin, output: process.stderr });
+    let answer;
+    try {
+      answer = await rl.question(`${outputPath} already exists and may be overwritten. Continue? [y/N] `);
+    } finally {
+      rl.close();
+    }
+    if (!/^[yY]/.test(answer.trim())) fail("Cancelled: output file was not overwritten");
+  }
+
   const packageJsonPath = resolve(REPO_ROOT, "package.json");
   await Bun.write(outputPath, Bun.file(packageJsonPath));
   console.log(outputPath);
