@@ -125,8 +125,9 @@ jsmdcui       Edit and run interactive Markdown applications
 musl-la       Launch AArch64 ELF programs with the bundled musl loader
 buninu-help   Render README.md with glow, then show icon.png with jsgotty --viu
 bunx          Globally install a package with bun, then exec its matching binary
-native-bridge Call the Android host app (toast, clipboard) over PKG_BRIDGE_SOCK
-xclip         X11-style clipboard tool; -selection clipboard/-clip bridges to native-bridge
+native-bridge Call the Android host app (toast, clipboard, speak) over PKG_BRIDGE_SOCK
+xclip         X11-style clipboard tool; -selection clipboard/-clip bridges to the system clipboard
+tts           Speak text and wait for it to finish (-a to not wait)
 ```
 
 `buninu-help` renders README.md with jsmdcui's `--cat` mode and then shows
@@ -141,26 +142,27 @@ rejects a syscall bin-linking uses), so `bunx` can't install anything there yet.
 
 `native-bridge [func] [args...]` calls into the Android host app that
 [minapk](https://www.npmjs.com/package/@drxiaozhi/minapk) built the running
-APK with, over the unix socket it exposes as `PKG_BRIDGE_SOCK`. A bare
-`native-bridge` defaults `func` to `_discover` and lists what the host
-implements; arguments are JSON-parsed when they parse cleanly (so `42`,
-`true`, `[1,2]` arrive as their real types) and kept as plain strings
-otherwise. Every call times out after 5 seconds, so a stuck or unresponsive
-host can never hang the caller. Outside an APK built with the native bridge
-wired in, every call fails with a clear error instead of hanging or doing
-nothing silently. `import { toast, clipboardRead, getcb, clipboardWrite,
-setcb, call, available, nothrow } from "apps/native-bridge/native-bridge.js"`
-gives the same functions as a library, for use from a `js back` block.
+APK with, over an abstract-namespace unix socket. A bare `native-bridge`
+lists what the host implements. Every call
+times out after 5 seconds instead of hanging; outside such an APK, every call
+fails with a clear error instead of doing nothing silently. `import { toast,
+clipboardRead, clipboardWrite, speak, ttsStatus, call, available } from
+"apps/native-bridge/native-bridge.js"` gives the same functions as a library,
+for use from a `js back` block.
 
 `xclip [-o] [-selection primary|clipboard] [-clip]` is a small X11-`xclip`-
-compatible clipboard tool built on native-bridge. `-selection primary` (the
-default) is local-file-only, matching real X11 semantics where the primary
-selection is never the same thing as the clipboard; `-selection
-clipboard`/`-clip` bridges to the real Android clipboard through
-native-bridge. jsmdcui's own clipboard backend detection already shells out
-to `xclip` when present on a Linux-like platform, which includes Android, so
-jsmdcui's middle-click paste, selection auto-sync, and `PastePrimary` command
-work inside an APK with no further wiring once `xclip` is on `PATH`.
+compatible clipboard tool. `-selection primary` (the default) never touches
+the system clipboard, matching real X11 semantics. `-selection
+clipboard`/`-clip` reaches the real system clipboard on Android, macOS,
+Windows, and Linux/Wayland. jsmdcui picks this up automatically once it's on
+`PATH`, so its middle-click paste and copy/paste commands just work.
+
+`tts <text> [-f|--flush] [-a|--async] [--timeout <ms>] [--pitch <n>]
+[--speed <n>]` speaks text and, by default, blocks until it finishes -- no
+timeout unless you pass `--timeout`. Works on Android, macOS, Windows, and
+Linux (via espeak-ng/espeak). `--pitch`/`--speed` fall back to
+`$TTS_PITCH`/`$TTS_SPEED` when not given explicitly, so jsmdcui's own
+pitch/speed setting is honored automatically.
 
 ## Export
 
@@ -209,6 +211,8 @@ paths obtained from Android APIs:
 
 - `PKG_DDIR`: `/storage/emulated/<user-id>/Android/data/<package>`.
 - `PKG_MDIR`: `/storage/emulated/<user-id>/Android/media/<package>`.
+- `PKG_BRIDGE_SOCK`: the `native-bridge` unix socket, when the host app
+  wires one in; see `native-bridge` above.
 
 ## Add a command
 
