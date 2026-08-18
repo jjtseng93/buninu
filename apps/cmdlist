@@ -29,3 +29,12 @@ xclip
 
 ### tts — Speak text through the Android host and wait for it to finish (-a to not wait)
 tts
+
+### showimg — Shorthand for jsgotty --viu
+showimg
+
+### rz — Upload a file over ZMODEM (bun apps/jsgotty/rz.js)
+rz
+
+### sz — Download a file over ZMODEM (bun apps/jsgotty/sz.js)
+sz
