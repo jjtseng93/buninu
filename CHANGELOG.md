@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.4 - 2026-08-19
+
+### Added
+
+- Add `apps/native-bridge`, a Bun module (`toast`, `clipboardRead`/`getcb`,
+  `clipboardWrite`/`setcb`, and the raw `call(func, args, envp)` it and the
+  CLI both sit on top of) that reaches minapk's Android native bridge over
+  `PKG_BRIDGE_SOCK` -- a Bun unix socket, filesystem-path or Linux
+  abstract-namespace depending on how that env var is encoded -- using
+  jsmdcui's `rpc.mjs` `switchBackend`. Only meaningful inside an APK built by
+  minapk with the native bridge wired in; elsewhere `available()` returns
+  `false` and calls throw a clear error instead of doing nothing silently.
+  Every call times out after 5s by default, so a stuck or unresponsive host
+  can never hang the caller. `bun apps/native-bridge/native-bridge.js [func]
+  [args...]` runs it directly; a bare invocation defaults `func` to
+  `_discover` and lists what the host implements.
+- Add the `xclip` command (`apps/xclip`), ported from the DroidScript-era
+  `../tmpk/bin/xclip.sh` to use native-bridge instead of `dsapi.pipe`.
+  `-selection primary` (the default) stays local-file-only, matching real X11
+  semantics where the primary selection is never the same thing as the
+  clipboard; `-selection clipboard`/`-clip` bridges to the real Android
+  clipboard through native-bridge. jsmdcui's own clipboard backend detection
+  already shells out to `xclip` on Linux-like platforms (`isLinuxLike()`
+  counts `process.platform === "android"`), so jsmdcui's middle-click paste,
+  selection auto-sync, and `PastePrimary` command all work inside an APK with
+  no further wiring once `xclip` is on `PATH`.
+
 ## 0.2.3 - 2026-08-18
 
 ### Added

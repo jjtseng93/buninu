@@ -21,5 +21,8 @@ buninu-help
 ### bunx — Globally install a package with bun, then exec its matching binary
 bunx
 
+### native-bridge — Call the Android host app (toast, clipboard) over PKG_BRIDGE_SOCK; bare invocation lists what the host implements
+native-bridge
+
 ### xclip — X11-style clipboard tool; -selection clipboard/-clip bridges to the real Android clipboard via native-bridge
 xclip
