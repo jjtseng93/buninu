@@ -7,8 +7,9 @@
 - Add `showimg`, a `bin/`-only shorthand for `jsgotty --viu` (no `apps/`
   subfolder, since it has no logic of its own beyond forwarding args).
 - Add `rz`/`sz`, `bin/`-only companion scripts wrapping the existing
-  `apps/jsgotty/rz.js`/`sz.js` for ZMODEM upload/download over the same
-  terminal connection jsgotty renders in a browser or WebView.
+  `apps/jsgotty/rz.js`/`sz.js` -- `rz` uploads a file over ZMODEM, `sz`
+  downloads one -- over the same terminal connection jsgotty renders in a
+  browser or WebView.
 
 - Add `apps/native-bridge`, a Bun module (`toast`, `clipboardRead`/`getcb`,
   `clipboardWrite`/`setcb`, and the raw `call(func, args, envp)` it and the
