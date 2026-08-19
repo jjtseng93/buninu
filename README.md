@@ -131,6 +131,7 @@ tts           Speak text and wait for it to finish (-a to not wait)
 showimg       Shorthand for jsgotty --viu
 rz            Upload a file over ZMODEM
 sz            Download a file over ZMODEM
+xdg-open      Open a file or URL with the platform's default handler
 ```
 
 `buninu-help` renders README.md with jsmdcui's `--cat` mode and then shows
@@ -171,6 +172,11 @@ pitch/speed setting is honored automatically.
 [more files...]` (download one or more files) are thin `bin/`-only wrappers
 around `apps/jsgotty/rz.js`/`sz.js`, transferring files over ZMODEM through
 the same terminal connection jsgotty already renders in a browser or WebView.
+
+`xdg-open <file-or-url>` hands a file or URL to whatever the platform treats
+as its default handler: the host app through native-bridge on Android (or
+`termux-open` under plain Termux), `open` on macOS, `start` on Windows, and
+the real system `xdg-open` on Linux.
 
 ## Export
 

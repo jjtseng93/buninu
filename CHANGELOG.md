@@ -4,6 +4,15 @@
 
 ### Added
 
+- Add the `xdg-open` command (`apps/xdg-open`), which opens a file or URL
+  with whatever the platform considers its default handler: native-bridge's
+  `xdgOpen` on Android (the host resolves a path under Buninu's home and
+  hands it to another app through a read-only `content://` provider, since
+  that directory is otherwise private to the APK), `termux-open` when
+  running under plain Termux with no native bridge, `open` on macOS, `start`
+  on Windows, and the real system `xdg-open` on Linux. That last one skips
+  Buninu's own `bin` while searching `PATH`, since this script is itself
+  registered as `xdg-open` and would otherwise find and run itself.
 - Add `showimg`, a `bin/`-only shorthand for `jsgotty --viu` (no `apps/`
   subfolder, since it has no logic of its own beyond forwarding args).
 - Add `rz`/`sz`, `bin/`-only companion scripts wrapping the existing
@@ -76,6 +85,24 @@
   commands are themselves registered as Buninu's `xclip`/`tts`, ahead of
   anything else of the same name on PATH, using either the way jsmdcui does
   from inside xclip.js/tts.js would just be each script invoking itself.
+- Add `bin/*.bat` launchers for the new commands (`native-bridge`, `xclip`,
+  `tts`, `showimg`, `rz`, `sz`, `xdg-open`). POSIX platforms get their
+  `bin/<name>` entries as symlinks rebuilt by `bin/init.js` on startup,
+  which Windows cannot use, so each command needs its own `.bat` there.
+
+### Changed
+
+- Update the bundled jsmdcui to 0.18.1, which adds `switchBackend()` to
+  `src/cui/rpc.mjs` so an RPC caller can point at something other than the
+  default `rpc` endpoint -- specifically a unix socket, which is what
+  `native-bridge` dials. Also picks up 0.18.1's fix for decoding a
+  percent-encoded socket path, needed because `new URL("unix:" + sock)`
+  turns a leading NUL (a Linux abstract-namespace socket) into `%00`.
+- `native-bridge`'s CLI now prints `_discover` one function per line instead
+  of as a single line of JSON, which makes the list greppable. The value
+  itself is untouched -- rpc.mjs dispatches every call against that object,
+  so it stays exactly what the host returned; only the CLI's own display of
+  it changed.
 
 ## 0.2.3 - 2026-08-18
 
