@@ -258,7 +258,7 @@ async function detectEnvironment() {
     return {
       name: "linux",
       shell:
-        await findCommand(process.env.SHELL) ||
+        // await findCommand(process.env.SHELL) ||
         Bun.which("bash") ||
         Bun.which("sh") ||
         "/bin/sh",
@@ -269,10 +269,11 @@ async function detectEnvironment() {
     return {
       name: "android",
       shell:
-        await findCommand(process.env.SHELL) ||
+        // await findCommand(process.env.SHELL) ||
         (await pathExists("/system/bin/sh") ? "/system/bin/sh" : null) ||
+        Bun.which("bash") ||
         Bun.which("sh") ||
-        "sh",
+        "/bin/sh",
     };
   }
 
@@ -280,7 +281,7 @@ async function detectEnvironment() {
     return {
       name: "macos",
       shell:
-        await findCommand(process.env.SHELL) ||
+        // await findCommand(process.env.SHELL) ||
         Bun.which("zsh") ||
         Bun.which("bash") ||
         Bun.which("sh") ||
@@ -292,7 +293,7 @@ async function detectEnvironment() {
     return {
       name: "linux",
       shell:
-        await findCommand(process.env.SHELL) ||
+        // await findCommand(process.env.SHELL) ||
         Bun.which("bash") ||
         Bun.which("sh") ||
         "/bin/sh",
@@ -302,7 +303,7 @@ async function detectEnvironment() {
   return {
     name: `unix:${process.platform}`,
     shell:
-      await findCommand(process.env.SHELL) ||
+      // await findCommand(process.env.SHELL) ||
       Bun.which("bash") ||
       Bun.which("sh") ||
       "/bin/sh",

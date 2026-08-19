@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 - 2026-08-19
+
+- Fixed fish shell startup breaking buninu
+- Start fish after entering the shell please
+
 ## 0.2.4 - 2026-08-19
 
 ### Added
