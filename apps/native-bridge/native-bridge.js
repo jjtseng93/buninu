@@ -94,6 +94,13 @@ export const speak = (text, speed = 1, pitch = 1, flush = false) =>
 export const ttsStatus = (handle) => call("ttsStatus", [handle])
 export const tts = ttsStatus
 
+// target is either a URL (any scheme:// prefix, opened via ACTION_VIEW same
+// as a WebView link tap) or a path under Buninu's home -- served back out
+// through a read-only content:// provider, since the home directory is
+// otherwise private to this app and a raw file:// Uri would be rejected by
+// the receiving app on modern Android.
+export const xdgOpen = (target) => call("xdgOpen", [target])
+
 // `bun native-bridge.js <func> [args...]`, dispatched straight to call(func,
 // args) -- not restricted to toast/clipboardRead/clipboardWrite, exactly like
 // calling rpcraw(func, args) would be. This is a raw RPC, equivalent to a
