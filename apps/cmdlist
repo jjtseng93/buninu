@@ -38,3 +38,6 @@ rz
 
 ### sz — Download a file over ZMODEM (bun apps/jsgotty/sz.js)
 sz
+
+### xdg-open — Open a file or URL with the platform's default handler (native bridge on Android, open/start/xdg-open elsewhere)
+xdg-open
