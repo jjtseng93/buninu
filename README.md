@@ -125,7 +125,7 @@ jsmdcui       Edit and run interactive Markdown applications
 musl-la       Launch AArch64 ELF programs with the bundled musl loader
 buninu-help   Render README.md with glow, then show icon.png with jsgotty --viu
 bunx          Globally install a package with bun, then exec its matching binary
-native-bridge Call the Android host app (toast, clipboard, speak) over PKG_BRIDGE_SOCK
+native-bridge Call the Android host app (toast, clipboard, speak, WebViews) over PKG_BRIDGE_SOCK
 xclip         X11-style clipboard tool; -selection clipboard/-clip bridges to the system clipboard
 tts           Speak text and wait for it to finish (-a to not wait)
 showimg       Shorthand for jsgotty --viu
@@ -150,9 +150,44 @@ APK with, over an abstract-namespace unix socket. A bare `native-bridge`
 lists what the host implements. Every call
 times out after 5 seconds instead of hanging; outside such an APK, every call
 fails with a clear error instead of doing nothing silently. `import { toast,
-clipboardRead, clipboardWrite, speak, ttsStatus, call, available } from
+clipboardRead, clipboardWrite, speak, ttsStatus, openWebView, evalWebView,
+showWebView, currWebView, call, available } from
 "apps/native-bridge/native-bridge.js"` gives the same functions as a library,
 for use from a `js back` block.
+
+`openWebView(id, url)`, `evalWebView(id, js)`, `showWebView(id)` and
+`currWebView()` (short: `openwv`, `evalwv`, `showwv`, `currwv`) drive the host
+app's WebViews. There are exactly two, both
+alive from startup and neither ever created nor closed at runtime: id `0` is
+the console -- the jsgotty terminal this shell is rendered in -- and id `1` is
+the app WebView, which starts out blank and behind. Anywhere an id is taken,
+`-1` means whichever WebView is in front right now.
+
+`openWebView` loads a URL *without* bringing that WebView to the front, so
+loading the app WebView while the user keeps looking at the terminal is one
+call. `showWebView` is the only thing that changes what is on screen; the
+host's on-screen key bar (Ctrl/Alt/Shift and friends), its volume-key menu and
+its back key all act on whichever WebView is in front, so they follow the
+switch. Back on the app WebView with no page of its own to go back to
+switches to the console rather than leaving the app, unless
+`buninu.backToConsole` says otherwise (see "Back key" below).
+`showWebView(-1)` switches to the next WebView instead of being a no-op --
+with two of them, a toggle. `evalWebView` resolves to the value the
+expression produced, not a string containing it; `undefined`, a function, and
+a thrown exception all arrive as `null`, since WebView itself does not
+distinguish them.
+
+All four also answer to a short `openwv`/`evalwv`/`showwv`/`currwv` spelling,
+the same way `clipboardRead`/`clipboardWrite` answer to `getcb`/`setcb`: the
+host accepts either and lists both in its `_discover` response, so either name
+works from the CLI, from `rpcraw`, and as an `import`.
+
+```sh
+native-bridge openwv 1 https://example.com   # load it, screen unchanged
+native-bridge showwv 1                       # now bring it to the front
+native-bridge evalwv 1 document.title
+native-bridge currwv
+```
 
 `xclip [-o] [-selection primary|clipboard] [-clip]` is a small X11-`xclip`-
 compatible clipboard tool. `-selection primary` (the default) never touches
@@ -177,6 +212,25 @@ the same terminal connection jsgotty already renders in a browser or WebView.
 as its default handler: the host app through native-bridge on Android (or
 `termux-open` under plain Termux), `open` on macOS, `start` on Windows, and
 the real system `xdg-open` on Linux.
+
+Inside minapk's APK, `MINAPK_WEBVIEW` redirects that: set it to a WebView id
+and a URL is loaded into that WebView and brought to the front (`openWebView`
+then `showWebView`) instead of being handed to the system's default handler.
+
+```sh
+MINAPK_WEBVIEW=1 xdg-open https://example.com   # in the app WebView, on screen
+export MINAPK_WEBVIEW=1                         # ...or for the whole session
+```
+
+`0` is the console, so it navigates the terminal page away -- the back key
+returns to it and jsgotty reconnects, but it is not usually what you want.
+`-1` is whichever WebView is in front. Only URLs are redirected: a file path
+always goes to the host's own handler, since WebView cannot read a `file://`
+URL under Buninu's home (`setAllowFileAccess` is false from API 30 on) while
+the host serves that same file through its content:// provider. A value that
+is not a plain integer is reported on stderr and ignored rather than guessed
+at, an unset or empty value keeps the default behavior, and a WebView the host
+does not have falls back to the default handler after saying so.
 
 ## Export
 
@@ -348,6 +402,29 @@ from the directory containing `package.json`.
 ```
 
 Use `--shell <path-or-name>` for a one-time override.
+
+## Back key (Android, optional)
+
+Set `buninu.backToConsole` in `package.json` to decide what the Android host
+app's back key does while the app WebView (id `1`, see `native-bridge` above)
+is in front and has no page of its own left to go back to. It defaults to
+`true`: back switches to the console WebView, leaving the app WebView loaded
+and running behind it. Set it to `false` and back leaves the app instead.
+
+```json
+{
+  "buninu": {
+    "backToConsole": false
+  }
+}
+```
+
+This one is read by the host app, not by Buninu itself, so it does nothing
+outside an APK built with
+[minapk](https://www.npmjs.com/package/@drxiaozhi/minapk) -- where it can also
+be set for a single build with `--no-back-to-console`. The host treats a
+missing, unreadable, or non-boolean value as `true`, so nothing here can fail
+in a way that leaves the back key broken.
 
 ## Process-list helpers
 
