@@ -101,6 +101,51 @@ export const tts = ttsStatus
 // the receiving app on modern Android.
 export const xdgOpen = (target) => call("xdgOpen", [target])
 
+// The host has exactly two WebViews, both alive from startup and neither ever
+// created nor closed at runtime: WEBVIEW_CONSOLE (0) is the jsgotty terminal
+// this shell is being rendered in, WEBVIEW_APP (1) is the app WebView, which
+// simply starts out blank and behind. WEBVIEW_CURRENT (-1) means whichever
+// one is in front right now, and is the default wherever an id is optional.
+// All four functions also go by openwv/evalwv/showwv/currwv, both here and
+// over the wire (the Java dispatcher answers to either spelling and lists
+// both in _discover), on the same grounds as getcb/setcb above.
+export const WEBVIEW_CURRENT = -1
+export const WEBVIEW_CONSOLE = 0
+export const WEBVIEW_APP = 1
+
+// Loads url into a WebView *without* bringing it to the front, so
+// openWebView(WEBVIEW_APP, url) while the user is looking at the terminal is
+// a plain background load -- showWebView is the only thing that changes what
+// is on screen. Omitting url loads nothing and just reports the id back,
+// which is how -1 gets resolved to a real id. Returns the id loaded into.
+export const openWebView = (id = WEBVIEW_CURRENT, url = "") =>
+  call("openWebView", [id, url])
+export const openwv = openWebView
+
+// Resolves to the value the expression produced -- a real number/string/
+// object, not a string containing one -- because the host sends
+// evaluateJavascript's own JSON text straight back as the response body.
+// undefined, a function, and a thrown exception all arrive as null: WebView
+// itself does not distinguish them, so return something JSON can carry when
+// you need to tell them apart. A page that never answers is given up on by
+// the host (inside this module's own call timeout) and comes back as an
+// "error: ..." string rather than hanging.
+export const evalWebView = (id, js) => call("evalWebView", [id, js])
+export const evalwv = evalWebView
+
+// Brings a WebView to the front. The bottom key bar (Ctrl/Alt/Shift and
+// friends), the volume-key menu and the back key all act on whatever is in
+// front, so this is also what re-points them. An id of -1 -- the default --
+// switches to the next WebView rather than being a no-op, which with two of
+// them is simply a toggle. Returns the id now in front.
+export const showWebView = (id = WEBVIEW_CURRENT) => call("showWebView", [id])
+export const showwv = showWebView
+
+// The id of the WebView in front, for code that wants to put something back
+// the way it found it.
+export const currWebView = () => call("currWebView")
+export const currwv = currWebView
+
 // `bun native-bridge.js <func> [args...]`, dispatched straight to call(func,
 // args) -- not restricted to toast/clipboardRead/clipboardWrite, exactly like
 // calling rpcraw(func, args) would be. This is a raw RPC, equivalent to a
