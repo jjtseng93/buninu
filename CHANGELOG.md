@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0 - 2026-08-21
+
+### Added
+
+- Add `openWebView`, `evalWebView`, `showWebView` and `currWebView` to
+  `apps/native-bridge` (short spellings `openwv`, `evalwv`, `showwv`,
+  `currwv`, both accepted over the wire and listed in the host's `_discover`,
+  the same arrangement `getcb`/`setcb` already had), plus the
+  `WEBVIEW_CURRENT`/`WEBVIEW_CONSOLE`/`WEBVIEW_APP` constants. The host app
+  has exactly two WebViews, alive from startup and never created or closed at
+  runtime: `0` is the console showing the jsgotty terminal, `1` is the app
+  WebView, which starts blank and behind. An id of `-1` means whichever is in
+  front. `openWebView` loads without bringing its target forward, so loading
+  the app WebView while the user keeps looking at the terminal is one call;
+  `showWebView` is the only thing that changes what is on screen, and
+  `showWebView(-1)` switches to the *next* WebView rather than being a no-op.
+  `evalWebView` resolves to the value the expression produced rather than a
+  string containing it, with `undefined`, functions and thrown exceptions all
+  arriving as `null` because WebView itself does not distinguish them.
+- `xdg-open` gained `MINAPK_WEBVIEW`, which names the WebView to open a URL
+  in (and brings it to the front) instead of handing the URL to the
+  platform's default handler. Read here rather than by the host app on
+  purpose: it is an environment variable of this process tree, so the host
+  could not see a value exported in the shell a moment ago, which is the
+  whole point of having it. Only URLs are redirected -- a filesystem path
+  still goes to the host, whose `content://` provider can actually serve it,
+  unlike a `file://` URL in a WebView. A value that is not a plain integer is
+  reported and ignored rather than guessed at, and a WebView the host does
+  not have falls back to the default handler after saying so.
+- Add `demo-server.js`: serves one fixed page on an OS-assigned port and
+  opens it in the app WebView through `MINAPK_WEBVIEW=1 xdg-open`, as the
+  smallest end-to-end exercise of the above.
+- Add `buninu.backToConsole` (default `true`), read by the minapk host app,
+  not by Buninu itself: it decides whether the Android back key, pressed on
+  the app WebView with no page of its own to go back to, switches to the
+  console WebView or takes the leave-the-app path. The host treats a missing,
+  unreadable or non-boolean value as `true`, so it cannot fail in a way that
+  leaves the back key broken. minapk's `--no-back-to-console` sets it for a
+  single build.
+
 ## 0.2.5 - 2026-08-19
 
 - Fixed fish shell startup breaking buninu
