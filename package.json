@@ -23,7 +23,8 @@
       "macos": null,
       "windows": null
     },
-    "exitAfterCmd": false
+    "exitAfterCmd": false,
+    "backToConsole": true
   },
   "scripts": {
     "start": "bun ./apps/jsgotty/gotty.js --reconnect -r -w --webgl -a 127.0.0.1",
