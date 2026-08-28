@@ -546,7 +546,11 @@ function shellCommandArguments(shell, command, exitAfterCmd) {
   return [shell, "-c", wrapped, shell, command];
 }
 
-const startScript = pkg.scripts?.start;
+let startScript = pkg.scripts?.start;
+
+if(process.argv.includes('--local'))
+  startScript = pkg.scripts?.local ;
+
 if (typeof startScript !== "string" || !startScript.trim()) {
   fail("package.json does not define scripts.start");
 }
@@ -606,9 +610,13 @@ const hasExplicitPort = forwardedArguments.some((argument) =>
 const portArguments = hasExplicitPort ? [] : ["-p", String(getFreePort())];
 const childEnvironment = await createChildEnvironment(environment);
 
+const infoSuffix = 
+  process.argv.includes('--local') ? 
+  'bunmsh' :
+  `port=${portArguments[1] || "user-defined"}, shell=${environment.shell}` ;
+
 console.error(
-  `${pkg.name}@${pkg.version}: ${environment.name}/${process.arch}, ` +
-  `port=${portArguments[1] || "user-defined"}, shell=${environment.shell}`,
+  `${pkg.name}@${pkg.version}: ${environment.name}/${process.arch}, ` + infoSuffix
 );
 
 const child = Bun.spawn(

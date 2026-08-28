@@ -52,6 +52,8 @@ On Linux and Windows, follow the
 
 ## Start
 
+### Start a remote shell in a Browser
+
 Run the npm package:
 
 ```sh
@@ -81,6 +83,25 @@ shell/command startup flow entirely: it spawns that app directly with every
 remaining argument forwarded to it, and exits with its exit code. Use this to
 reach an app's own options directly, for example `npx buninu --jsgotty --help`
 to see jsgotty's actual flag reference instead of Buninu's.
+
+### Start a local shell in a Terminal (experimental)
+
+Drops you straight into [bunmsh](apps/bunmsh/README.md) (Bun Modern Shell), a
+dependency-free, mksh-inspired command shell that runs on Bun, without going
+through the browser/jsgotty flow.
+
+```sh
+npx buninu --local
+```
+
+Or run it from a source checkout:
+
+```sh
+bun ./bin/init.js --local
+```
+
+Buninu's own tools (`rz`, `sz`, `showimg`, `tts`, `xdg-open`, `native-bridge`,
+etc.) stay available inside this shell too, same as in the browser session.
 
 ## Security
 
