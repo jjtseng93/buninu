@@ -45,6 +45,16 @@
   touched by it, so SSH keys and Git configuration in the user's own home keep
   working and bunmsh can still import an existing `~/.bash_history`.
 
+- Refusing to install into an occupied directory now says which check the
+  directory failed — no readable `package.json`, or one naming a different
+  package — instead of reporting every case as "is not a buninu installation".
+  Whether a directory is an installation to update is decided by that name
+  alone: a Buninu missing `bin/init.js` is a damaged installation rather than
+  somebody else's directory, so an update repairs it, merging the local
+  configuration back in, where before `--force` was the only way through and
+  took that configuration with it. Every refusal names the directory by
+  absolute path.
+
 ### Fixed
 
 - `HOME` no longer falls back to the package directory when the environment

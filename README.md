@@ -247,7 +247,13 @@ Three more things are worth knowing about:
   across updates.
 - `--force` skips both the merge and the check, and installs the shipped
   versions over yours. It is also what installs into a non-empty directory that
-  is not a Buninu installation, which is otherwise refused.
+  is not a Buninu installation, which is otherwise refused — by absolute path,
+  saying which check the directory failed.
+
+Whether a directory counts as an installation to update is decided by the name
+in its `package.json`. An installation that has lost files, `bin/init.js`
+included, is a damaged one rather than somebody else's directory, so installing
+over it repairs it and still merges your configuration back in.
 
 A source checkout's own `.git` is never copied into an installation, so
 installing into a directory that is itself a repository leaves that repository
@@ -458,11 +464,24 @@ own projects ship.
 
 ## Export
 
-Export the current Buninu installation as a gzip-compressed tar archive:
+Export a Buninu installation as a gzip-compressed tar archive. What gets
+exported is the installation the command runs from, so run it from your own
+installation to capture your configuration, added commands and edited
+`.bashrc` along with it:
+
+```sh
+# Everything in this installation, as ./buninu.tgz
+bun $BUNINU_HOME/bin/init.js --export
+
+# ...to a path of your choosing
+bun $BUNINU_HOME/bin/init.js --export /path/to/buninu.tgz
+```
+
+Run it through `npx` instead and you get an archive of the freshly downloaded
+package, with none of that — useful for a clean copy, not for a backup:
 
 ```sh
 npx buninu@latest --export
-npx buninu@latest --export /path/to/buninu.tgz
 ```
 
 The default output is `./buninu.tgz`. The archive contains exactly one
@@ -470,16 +489,28 @@ top-level directory so consumers can remove one component while extracting.
 Export requires `tar` in `PATH`; when replacing an existing output,
 Buninu restores the previous file if archive creation or replacement fails.
 
-Export this `package.json` on its own, instead of the whole installation:
+Export this `package.json` on its own, instead of the whole installation. The
+same distinction applies — run it from your installation to get your settings,
+through `npx` to get the defaults:
 
 ```sh
+# The buninu section as you have configured it, as ./buninu.json
+bun $BUNINU_HOME/bin/init.js --export-config
+
+# ...to a path of your choosing
+bun $BUNINU_HOME/bin/init.js --export-config /path/to/buninu.json
+
+# The package's own defaults instead
 npx buninu@latest --export-config
-npx buninu@latest --export-config /path/to/buninu.json
 ```
 
 The default output is `./buninu.json`. This is the full `package.json` (not
 just the `buninu` section), so the output is ready to use as-is anywhere a
 complete replacement `package.json` is expected.
+
+A tarball made this way is also the simplest backup to take before an update
+that is going to replace files you edited; see
+[Install and update](#install-and-update).
 
 ## Environment
 
