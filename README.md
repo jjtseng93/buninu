@@ -103,6 +103,16 @@ bun ./bin/init.js --local
 Buninu's own tools (`rz`, `sz`, `showimg`, `tts`, `xdg-open`, `native-bridge`,
 etc.) stay available inside this shell too, same as in the browser session.
 
+## Data & Persistence
+
+Running Buninu via `npx` works like a container: `npx` fetches the package
+into a cache directory and runs it from there, which is fine as a temporary
+working directory but isn't guaranteed to survive between runs (version
+bumps, `npx clear-npx-cache`, or normal cache eviction can all wipe it).
+Anything you want to keep permanently should be saved to another location on
+your machine — for example under your home directory — rather than left in
+whatever directory the shell happens to start in.
+
 ## Security
 
 `scripts.start` binds jsgotty to `127.0.0.1` by default, so the terminal
@@ -287,7 +297,9 @@ directory as their working directory. Buninu also appends
 
 Buninu preserves inherited environment variables and supplies these fallbacks:
 
-- `HOME`: inherited value, or `BUNINU_HOME` when unset.
+- `HOME`: inherited value; when unset, the operating system's own home
+  directory for the current user (`USERPROFILE` on Windows), falling back to
+  `BUNINU_HOME` only if that is unavailable too.
 - `TMPDIR`: inherited value; on Android, use the app cache directory when it
   exists or `$BUNINU_HOME/tmp` otherwise; on other platforms, use the system
   temporary directory.

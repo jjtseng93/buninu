@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 - 2026-08-29
+
+- Added bunmsh to bin and cmdlist
+
+## 0.3.1 - 2026-08-29
+
+- Added bunmsh to buninu
+
 ## 0.3.0 - 2026-08-21
 
 ### Added

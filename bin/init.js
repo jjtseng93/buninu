@@ -2,7 +2,7 @@
 
 import pkg from "../package.json" with { type: "json" };
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
-import { tmpdir as systemTmpDir } from "node:os";
+import { homedir, tmpdir as systemTmpDir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,10 @@ Init options:
   --changelog            Render CHANGELOG.md in the terminal and exit
   --export [output.tgz]  Export this Buninu installation (default: ./buninu.tgz)
   --export-config [output.json]  Export this package.json (default: ./buninu.json)
+  -i, --install [dir]    Install this package into <dir>/${pkg.name} (default: .)
+  -si, --strip-install [dir]  Install into <dir> directly, without a
+                          top-level directory of its own
+                          (--install --help shows the full install options)
   --shell <path|name>    Override buninu.shell for this run
   --command <command>    Override buninu.command for this run
 
@@ -411,7 +415,7 @@ async function createChildEnvironment(environment) {
         : resolve(rootDir, "tmp")
       : systemTmpDir()
   );
-  const homeDir = process.env.HOME || rootDir;
+  const homeDir = process.env.HOME || homedir() || rootDir;
   const envFile = await pathExists(resolve(rootDir, ".bashrc"))
     ? resolve(rootDir, ".bashrc")
     : await pathExists(resolve(homeDir, ".bashrc"))
@@ -544,6 +548,20 @@ function shellCommandArguments(shell, command, exitAfterCmd) {
   // them into the wrapper. This keeps the wrapper single-line and avoids LF
   // (Ctrl+J) characters in its process-list representation.
   return [shell, "-c", wrapped, shell, command];
+}
+
+// Install is a mode of its own rather than a startup option, so it follows the
+// same "must be the first argument" rule as the direct app launches above and
+// never competes with an argument being forwarded to jsgotty.
+function isInstallArgument(argument = "") {
+  return argument === "-i" || argument === "--install" ||
+    argument === "-si" || argument === "--strip-install" ||
+    argument.startsWith("--install=") || argument.startsWith("--strip-install=");
+}
+
+if (isInstallArgument(process.argv[2])) {
+  const { runInstall } = await import("./install.js");
+  process.exit(await runInstall(process.argv.slice(2)));
 }
 
 let startScript = pkg.scripts?.start;
