@@ -112,8 +112,8 @@ bun ~/somewhere/buninu/bin/init.js --local
 ```
 
 Command history is kept in your own home directory either way, so it survives
-`npx`. What does not is anything you add to the installation itself — aliases
-in its `.bashrc`, commands of your own under `apps/` — since that lives in the
+`npx`. What does not is anything you add to the installation itself — commands
+of your own under `apps/`, edits to its `.bashrc` — since that lives in the
 package, and under `npx` the package is a cache directory.
 See [Data & Persistence](#data--persistence).
 
@@ -125,6 +125,26 @@ bun ./bin/init.js --local
 
 Buninu's own tools (`rz`, `sz`, `showimg`, `tts`, `xdg-open`, `native-bridge`,
 etc.) stay available inside this shell too, same as in the browser session.
+
+Unlike the shells the browser terminal starts, **bunmsh does not read
+`.bashrc`**. It does not claim complete POSIX behavior yet, so a startup file
+written for a full shell can fail part way through — and a startup file that
+fails is a shell you cannot get into. Nothing is read automatically until that
+is no longer a risk. Source it yourself when you want it:
+
+```sh
+. ./.bashrc
+```
+
+The shell starts in `BUNINU_HOME`, so that path works as written at first;
+after moving elsewhere, use `. "$BUNINU_HOME/.bashrc"`.
+
+There is no setting that does this for you yet, and
+[`buninu.command`](#startup-command-optional) is not it:
+`--local` does not run it at all, and the browser terminal, which does, runs it
+in a subshell before starting a fresh shell — so aliases and functions a
+startup command defines are gone by the time you reach a prompt either way.
+Until bunmsh reads a startup file of its own, sourcing it by hand is the way.
 
 ## Data & Persistence
 
@@ -624,6 +644,16 @@ terminal returns to an interactive shell.
 For compatibility, `"command": "..."` is also accepted as a shared command
 for every platform.
 
+The command runs in a subshell, and the interactive shell that follows is a
+fresh one, so anything it defines rather than does — aliases, functions, shell
+variables — is gone before you reach a prompt. Use it to run something, print
+something, or start something; a startup file that configures the session is a
+job for the shell itself, through `ENV` for the shells that honor it.
+
+It applies to the browser terminal only. `--local` does not run it, so a
+`bunmsh` session starts with nothing from this setting; see
+[Start a local shell in a Terminal](#start-a-local-shell-in-a-terminal-experimental).
+
 Override it for one run with:
 
 ```sh
@@ -728,6 +758,23 @@ in a way that leaves the back key broken.
 The bundled `.bashrc` provides `pspa` (`ps -eo pid,args`) and `pspac`, which
 writes that process list to `$HOME/.pspidargs.sh` and displays it with `glow`.
 Buninu preserves an existing `HOME` rather than replacing or modifying the
-user's home; shells that honor `ENV` load the bundled file, while interactive
-Bash may load only `$HOME/.bashrc`, so add `. "$BUNINU_HOME/.bashrc"` to a
-custom Bash configuration when these aliases are not available.
+user's home, and points `ENV` at the bundled file. Shells that honor `ENV` load
+it and get these aliases. Bash does not: an interactive Bash reads
+`$HOME/.bashrc` and ignores `ENV`, so on a system where Bash is the shell the
+bundled file is never loaded, and your own `$HOME/.bashrc` is left entirely
+alone.
+
+To get the aliases in such a session, source the file from the prompt:
+
+```sh
+. "$BUNINU_HOME/.bashrc"
+```
+
+Source it from the prompt rather than putting that line in your own
+`$HOME/.bashrc`: `BUNINU_HOME` is only set inside a Buninu session, so
+elsewhere the same line reads `. "/.bashrc"` and every shell you open either
+complains or, if that file happens to exist, sources something you did not
+mean to.
+
+bunmsh reads neither file; see
+[Start a local shell in a Terminal](#start-a-local-shell-in-a-terminal-experimental).
