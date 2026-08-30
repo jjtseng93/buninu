@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.1 - 2026-08-30
+
+### Fixed
+
+- A freshly installed tree no longer reports files as locally changed when
+  only their file mode differs. Publishing normalises modes, so a file can come
+  back from the registry with a different executable bit and byte-identical
+  contents, which `bun pm diff` counts as a modification; an update was
+  listing those and asking about files nobody had touched. They are now
+  recognised by the mode having changed while the contents did not, and left
+  out of the list, with a line saying how many were ignored so the count still
+  adds up against the command below.
+
+### Changed
+
+- An update prints the `bun pm diff` command it is about to run, on a line of
+  its own before the result. Run it by hand without `--json` to read the list
+  directly, or without `--name-only` to see the changes themselves rather than
+  which files hold them. It goes to stdout rather than stderr with the rest of
+  the output, so `2>/dev/null` leaves just the command.
+
 ## 0.4.0 - 2026-08-30
 
 ### Added

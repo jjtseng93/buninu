@@ -195,14 +195,20 @@ const DIFF_TIMEOUT_MS = 60_000;
 // the user changed. Files it calls added are theirs and are never deleted by
 // an update; only modified ones are about to be written over.
 async function findLocalChanges(destination, version) {
-  const child = Bun.spawn(
-    [
-      process.execPath, "pm", "diff",
-      `${pkg.name}@${version}`, destination,
-      "--name-only", "--json",
-    ],
-    { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-  );
+  const argv = [
+    process.execPath, "pm", "diff",
+    `${pkg.name}@${version}`, destination,
+    "--name-only", "--json",
+  ];
+
+  // On a line of its own, unprefixed, and on stdout rather than stderr with
+  // the rest of the output, so it stands out and `2>/dev/null` leaves just the
+  // command: copy it and run it by hand without --json to read the list, or
+  // without --name-only to see the changes themselves rather than which files
+  // hold them.
+  console.log(`  ${argv.join(" ")}`);
+
+  const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
 
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -241,12 +247,26 @@ async function findLocalChanges(destination, version) {
     return { files: null, error: "bun pm diff did not return JSON" };
   }
 
+  const modified = (report.files ?? [])
+    .filter((file) => file.status === "modified" && !MERGED_PATHS.has(file.path));
+
   return {
-    files: (report.files ?? [])
-      .filter((file) => file.status === "modified" && !MERGED_PATHS.has(file.path))
-      .map((file) => file.path),
+    files: modified.filter((file) => !isModeOnlyChange(file)).map((file) => file.path),
+    modeOnly: modified.filter(isModeOnlyChange).length,
     error: null,
   };
+}
+
+// Publishing normalises file modes, so a file can come back from the registry
+// with a different executable bit and identical contents. bun pm diff calls
+// that a modification, and reporting it would mean a freshly installed tree
+// listing files nobody has touched. modeBefore and modeAfter are only present
+// when the mode differs at all; the rest is what says the bytes did not.
+function isModeOnlyChange(file) {
+  return file.modeBefore !== undefined &&
+    file.linesAdded === 0 &&
+    file.linesRemoved === 0 &&
+    file.bytesBefore === file.bytesAfter;
 }
 
 // Returns null when there is no terminal to ask at, which the caller reports
@@ -426,7 +446,7 @@ async function confirmLocalChanges(destination, version, options) {
   // sit there for a while with nothing on screen to explain the wait.
   console.error(`${pkg.name}: comparing it against the published ${version} for local changes...`);
 
-  const { files, error } = await findLocalChanges(destination, version);
+  const { files, modeOnly, error } = await findLocalChanges(destination, version);
 
   // The check needs the registry, so it cannot run offline or against a version
   // that was never published. Whether anything was edited locally is then
@@ -446,6 +466,15 @@ async function confirmLocalChanges(destination, version, options) {
       return true;
     }
     return false;
+  }
+
+  // Worth saying rather than hiding: it explains why the count here is smaller
+  // than the one the printed command reports, and a mode that keeps coming back
+  // is worth knowing about even though an update is not what changed it.
+  if (modeOnly) {
+    console.error(
+      `${pkg.name}: ${modeOnly} file(s) differ only in file mode, with identical contents; ignoring them`,
+    );
   }
 
   if (!files.length) return false;
