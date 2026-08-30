@@ -10,12 +10,12 @@ let ttyModeDepth = 0;
 let rawOutputMode = false;
 const defaultDebugLogPath = path.join(os.tmpdir(), "zmodem", "zmodem.log");
 const debugLogPath = resolveDebugLogPath();
-const singleExeHelpersPromise = globalThis.Bun
-  ? Promise.all([
-      import("./single-exe/compiled.js").catch(() => null),
-      import("./single-exe/assetsHelper.js").catch(() => null),
-    ])
-  : Promise.resolve([null, null]);
+const ZMODEM_ASSET = "static/js/zmodem.js";
+//  ESM, and Bun-only in practice: under Node there is nothing embedded, so
+//  the source checkout's own copy is the only answer anyway.
+const assetsHelperPromise = globalThis.Bun
+  ? import("./single-exe/assetsHelper.js").catch(() => null)
+  : Promise.resolve(null);
 
 async function loadZmodem() {
   if (cachedZmodem) {
@@ -23,12 +23,14 @@ async function loadZmodem() {
   }
 
   await globalThis.assetsLoaderPromise;
-  const [compiledHelper, assetsHelper] = await singleExeHelpersPromise;
-  const bundleAssetPath = assetsHelper?.assetPath?.("static", "js", "zmodem.js") ?? "static/js/zmodem.js";
-  const source =
-    assetsHelper?.readInternalAssetText?.(bundleAssetPath) ??
-    fs.readFileSync(path.join(compiledHelper?.REPO_ROOT ?? __dirname, "static", "js", "zmodem.js"), "utf8");
-  const bundlePath = path.join(compiledHelper?.REPO_ROOT ?? __dirname, "static", "js", "zmodem.js");
+  const assets = await assetsHelperPromise;
+  const source = assets
+    ? assets.readAssetTextSync(ZMODEM_ASSET)
+    : fs.readFileSync(path.join(__dirname, ZMODEM_ASSET), "utf8");
+  //  Only a label for stack traces out of the vm context.
+  const bundlePath = assets
+    ? assets.assetDiskPath(ZMODEM_ASSET)
+    : path.join(__dirname, ZMODEM_ASSET);
   const quietConsole = {
     debug() {},
     log() {},

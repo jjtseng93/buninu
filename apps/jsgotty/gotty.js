@@ -97,25 +97,30 @@ const DEFAULTS = {
 const compiledHelperPromise = import("./single-exe/compiled.js").catch(() => null);
 const assetsHelperPromise = import("./single-exe/assetsHelper.js").catch(() => null);
 
-let RESOURCE_ROOT = __dirname;
-let STATIC_ROOT = path.resolve(RESOURCE_ROOT, "./static");
-let DEFAULT_INDEX = path.join(STATIC_ROOT, "index.html");
-let DEFAULT_MANIFEST = path.join(STATIC_ROOT, "manifest.json");
-let DEFAULT_HELP = path.join(STATIC_ROOT, "help.md");
-let DEFAULT_README = path.resolve(RESOURCE_ROOT, "./README.md");
-let DEFAULT_README_EN = path.resolve(RESOURCE_ROOT, "./README.en.md");
-let helperAssetPath = null;
-let helperReadInternalAssetText = null;
-let helperReadInternalAssetBytes = null;
+//  Assets are addressed by the package-relative keys package.json declares
+//  ("static/index.html", "README.md"). assetsHelper turns a key into bytes,
+//  wherever they live: the embedded store, the compiled binary's virtual
+//  filesystem, or a file on disk. Nothing here builds an absolute path.
+let assets = null;
 
-function configureResourceRoot(compiledHelper) {
-  RESOURCE_ROOT = compiledHelper?.REPO_ROOT
-  STATIC_ROOT = path.resolve(RESOURCE_ROOT, "./static");
-  DEFAULT_INDEX = path.join(STATIC_ROOT, "index.html");
-  DEFAULT_MANIFEST = path.join(STATIC_ROOT, "manifest.json");
-  DEFAULT_HELP = path.join(STATIC_ROOT, "help.md");
-  DEFAULT_README = path.resolve(RESOURCE_ROOT, "./README.md");
-  DEFAULT_README_EN = path.resolve(RESOURCE_ROOT, "./README.en.md");
+//  Node runs this file without the ESM-only helper. Then there is nothing
+//  embedded either, so a key is just a path under the source checkout.
+function assetText(key) {
+  return assets
+    ? assets.readAssetTextSync(key)
+    : fs.readFileSync(path.join(__dirname, key), "utf8");
+}
+
+function assetFilePath(key) {
+  return assets ? assets.assetDiskPath(key) : path.join(__dirname, key);
+}
+
+//  URL-relative path -> asset key, or null when it escapes `static/`.
+//  Normalizing against "/" is what makes "../../etc/passwd" unreachable.
+function staticAssetKey(relativePath) {
+  const rel = path.posix.normalize(`/${String(relativePath ?? "")}`).slice(1);
+  if (!rel || rel === ".." || rel.startsWith("../")) return null;
+  return `static/${rel}`;
 }
 
 let cliBootstrapPromise = null;
@@ -247,8 +252,8 @@ Experimental:
   --build-for <target>          Build a Bun single-file executable for target`);
 }
 
-function printMarkdownFile(filePath) {
-  const text = readTextFile(filePath);
+function printMarkdownFile(key) {
+  const text = assetText(key);
   const markdownAnsi =
     typeof Bun !== "undefined" &&
     Bun &&
@@ -257,10 +262,6 @@ function printMarkdownFile(filePath) {
       ? Bun.markdown.ansi
       : null;
   console.log(markdownAnsi ? markdownAnsi(text, { hyperlinks: true }) : text);
-}
-
-function printWebHelp() {
-  printMarkdownFile(DEFAULT_HELP);
 }
 
 function fatal(message, code = 1) {
@@ -510,15 +511,15 @@ function parseArgs(argv) {
         process.exit(0);
         break;
       case "--help-web":
-        printWebHelp();
+        printMarkdownFile("static/help.md");
         process.exit(0);
         break;
       case "--readme":
-        printMarkdownFile(DEFAULT_README);
+        printMarkdownFile("README.md");
         process.exit(0);
         break;
       case "--readme-en":
-        printMarkdownFile(DEFAULT_README_EN);
+        printMarkdownFile("README.en.md");
         process.exit(0);
         break;
       case "--address":
@@ -662,36 +663,6 @@ function previewBuffer(buffer, limit = 96) {
     ascii: chunk.toString("latin1").replace(/[^\x20-\x7e]/g, "."),
     hex: chunk.toString("hex")
   });
-}
-
-function readTextFile(filePath) {
-  const bundledText = helperReadInternalAssetText?.(internalAssetPathFor(filePath));
-  if (bundledText == null) {
-    return fs.readFileSync(filePath, "utf8");
-  }
-  return bundledText;
-}
-
-function internalAssetPathFor(filePath) {
-  if (!helperAssetPath) {
-    return filePath;
-  }
-
-  const normalizedPath = path.normalize(filePath);
-  const staticRelativePath = path.relative(STATIC_ROOT, normalizedPath);
-  if (staticRelativePath && !staticRelativePath.startsWith("..") && !path.isAbsolute(staticRelativePath)) {
-    return helperAssetPath("static", staticRelativePath);
-  }
-
-  if (normalizedPath === DEFAULT_README) {
-    return helperAssetPath("README.md");
-  }
-
-  if (normalizedPath === DEFAULT_README_EN) {
-    return helperAssetPath("README.en.md");
-  }
-
-  return filePath;
 }
 
 function contentType(filePath) {
@@ -1357,10 +1328,26 @@ class NodePtyBackend {
   constructor(options) {
     let nodePty;
     try {
+      //  Split so the bundler cannot resolve it. This branch is unreachable
+      //  in a compiled binary (Bun >= 1.3.14 always takes BunPtyBackend), so
+      //  a static require would only bake ~54 KB of dead JS into the exe —
+      //  and node-pty's own `.node` loading is dynamic anyway, so it would
+      //  still need the files on disk.
       let preventSingleExe="./lib/"
       nodePty = require(preventSingleExe+"node-pty");
     } catch (error) {
-      throw new Error("node-pty is required on Windows but is not installed");
+      const detail = error && error.message ? `: ${error.message}` : "";
+      throw new Error(
+        globalThis.Bun
+          ? "This build falls back to node-pty because Bun " + globalThis.Bun.version
+            + " is older than 1.3.14, which is where the built-in ConPTY backend landed. "
+            + "A compiled binary cannot load node-pty — it is deliberately left out of the "
+            + "bundle — so rebuild with Bun 1.3.14 or newer, or run from a source checkout "
+            + "with node-pty installed" + detail
+          : "node-pty is required to run under Node on Windows, and it could not be loaded "
+            + "from ./lib/node-pty. Run with Bun 1.3.14 or newer to use the built-in ConPTY "
+            + "backend instead" + detail,
+      );
     }
 
     const system32 = path.join(process.env.windir, 'System32');
@@ -2659,8 +2646,10 @@ function createServerRuntime(command, argv, options) {
   );
   const wsPath = `${basePath}ws`;
   const originMatcher = options.wsOrigin ? new RegExp(options.wsOrigin) : null;
-  const indexTemplate = readTextFile(options.index ? expandHome(options.index) : DEFAULT_INDEX);
-  const manifestTemplate = readTextFile(DEFAULT_MANIFEST);
+  const indexTemplate = options.index
+    ? fs.readFileSync(expandHome(options.index), "utf8")
+    : assetText("static/index.html");
+  const manifestTemplate = assetText("static/manifest.json");
   const activeSessions = new Set();
   const reconnectRegistry = new Map();
   let acceptedOnce = false;
@@ -2784,7 +2773,7 @@ function createServerRuntime(command, argv, options) {
     }
 
     if (relativePath === "help.md" || relativePath === "help") {
-      const markdown = readTextFile(DEFAULT_HELP);
+      const markdown = assetText("static/help.md");
       const markdownToHtml = global.Bun?.markdown?.html;
       const renderHtml = relativePath === "help" && typeof markdownToHtml === "function";
       const body = renderHtml
@@ -2865,18 +2854,18 @@ function createServerRuntime(command, argv, options) {
       return;
     }
 
-    const assetPath = path.normalize(path.join(STATIC_ROOT, relativePath));
-    if (!assetPath.startsWith(STATIC_ROOT)) {
+    const assetKey = staticAssetKey(relativePath);
+    if (!assetKey) {
       res.writeHead(403);
       res.end("Forbidden");
       return;
     }
 
-    const bundledAsset = helperReadInternalAssetBytes?.(internalAssetPathFor(assetPath));
+    const bundledAsset = assets?.readInternalAssetBytes(assetKey);
     if (bundledAsset != null) {
       const body = bundledAsset instanceof Uint8Array ? bundledAsset : new Uint8Array(bundledAsset);
       res.writeHead(200, {
-        "Content-Type": contentType(assetPath),
+        "Content-Type": contentType(assetKey),
         "Content-Length": body.length,
         "Server": "GoTTY"
       });
@@ -2884,7 +2873,8 @@ function createServerRuntime(command, argv, options) {
       return;
     }
 
-    fs.stat(assetPath, (error, stats) => {
+    const externalPath = assetFilePath(assetKey);
+    fs.stat(externalPath, (error, stats) => {
       if (error || !stats.isFile()) {
         res.writeHead(404, { "Server": "GoTTY" });
         res.end("Not Found");
@@ -2892,11 +2882,11 @@ function createServerRuntime(command, argv, options) {
       }
 
       res.writeHead(200, {
-        "Content-Type": contentType(assetPath),
+        "Content-Type": contentType(assetKey),
         "Content-Length": stats.size,
         "Server": "GoTTY"
       });
-      fs.createReadStream(assetPath).pipe(res);
+      fs.createReadStream(externalPath).pipe(res);
     });
   };
 
@@ -3290,15 +3280,9 @@ function main() {
 async function bootstrap() {
   try {
     const compiledHelper = await compiledHelperPromise;
-    configureResourceRoot(compiledHelper);
     await compiledHelper?.buildEarlyExit?.(process.argv,'jsgt');
 
-    const assetsHelper = await assetsHelperPromise;
-    if (assetsHelper) {
-      helperAssetPath = assetsHelper.assetPath;
-      helperReadInternalAssetText = assetsHelper.readInternalAssetText;
-      helperReadInternalAssetBytes = assetsHelper.readInternalAssetBytes;
-    }
+    assets = await assetsHelperPromise;
     await globalThis.assetsLoaderPromise;
   } catch (error) {
     console.error(String(error && error.stack ? error.stack : error));
@@ -3323,3 +3307,8 @@ if (require.main === module) {
     process.exitCode = 1;
   });
 }
+
+//  The guard above is inlined to false once this file is bundled, because
+//  the bundle entry point is single-exe/entry.mjs rather than this file.
+//  Export the starter so that entry point can call it.
+module.exports.bootstrap = bootstrap;
