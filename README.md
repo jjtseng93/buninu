@@ -62,11 +62,13 @@ npx buninu
 ```
 
 To keep it, install it somewhere of your own first, and start it from there
-from then on. See [Install and update](#install-and-update):
+from then on. That directory becomes `BUNINU_HOME`: the installation's own
+root, yours to edit and to carry to another machine. See
+[Install and update](#install-and-update):
 
 ```sh
-npx buninu --install ~/somewhere   # creates ~/somewhere/buninu as BUNINU_HOME
-bun ~/somewhere/buninu/bin/init.js
+npx buninu --install ~/somewhere   # creates ~/somewhere/buninu
+bun ~/somewhere/buninu/bin/init.js # ...which is now BUNINU_HOME
 ```
 
 Or run it from a source checkout:
@@ -99,9 +101,25 @@ Drops you straight into [bunmsh](apps/bunmsh/README.md) (Bun Modern Shell), a
 dependency-free, mksh-inspired command shell that runs on Bun, without going
 through the browser/jsgotty flow.
 
+To try it:
+
 ```sh
 npx buninu --local
 ```
+
+To keep it, install it the same way as above and pass `--local` to the
+installed copy from then on. See [Install and update](#install-and-update):
+
+```sh
+npx buninu --install ~/somewhere         # creates ~/somewhere/buninu as
+                                         # BUNINU_HOME
+bun ~/somewhere/buninu/bin/init.js --local
+```
+
+This matters more here than it does for the browser terminal: a shell you
+actually work in accumulates history, aliases and commands of your own, and
+under `npx` all of that sits in a cache directory that is not yours to keep.
+See [Data & Persistence](#data--persistence).
 
 Or run it from a source checkout:
 
@@ -124,6 +142,12 @@ The answer is to stop running it from there: [install it](#install-and-update)
 into a directory of your own, and `BUNINU_HOME` becomes somewhere you can keep
 things, edit files in, and carry to another machine.
 
+Once it is installed, files you leave in `BUNINU_HOME` are safe, updates
+included — an update only adds and overwrites the package's own files and
+never deletes anything else. Your own home directory is untouched and still
+reachable as `~`, so work you would rather keep separate from Buninu, or that
+is too large to carry around with it, can just as well live there.
+
 Two things live outside `BUNINU_HOME` either way, because they belong to the
 machine rather than to Buninu:
 
@@ -132,8 +156,13 @@ machine rather than to Buninu:
   else you keep there.
 - bunmsh writes its command history to `$XDG_DATA_HOME/bunmsh/history`, or
   `$HOME/.local/share/bunmsh/history` when that is unset. It persists between
-  sessions, but it stays on the machine it was typed on rather than travelling
-  with an installation.
+  sessions, and by default it stays on the machine it was typed on rather than
+  travelling with an installation.
+
+Set [`buninu.xdgDataHome`](#data-directory-optional) to move that history, and
+anything else written to the XDG data directory, into the installation so it
+travels with it. Keep in mind that a history file records the commands it was
+given, so one carried on removable media carries whatever was typed into it.
 
 ## Install and update
 
@@ -150,7 +179,19 @@ npx buninu --strip-install ~/buninu     # ~/buninu itself becomes BUNINU_HOME,
 Both default to the current directory. The two differ only in where
 `BUNINU_HOME` — the installation's own root, see
 [Environment](#environment) — ends up: below the directory you named, or at
-it. Once installed, start it with `bun $BUNINU_HOME/bin/init.js`.
+it.
+
+An installation is started the same two ways `npx buninu` is, by running its
+own `bin/init.js` instead of the package name:
+
+```sh
+bun $BUNINU_HOME/bin/init.js            # terminal in a browser, as usual
+bun $BUNINU_HOME/bin/init.js --local    # bunmsh in this terminal (experimental)
+```
+
+Every option described under [Start](#start) works the same way here, `--local`
+included; nothing about an installed copy behaves differently from the one
+`npx` runs.
 
 Installing over an existing Buninu updates it in place. Files are only added
 and overwritten, never deleted, so anything you added of your own is left
@@ -403,6 +444,8 @@ Buninu preserves inherited environment variables and supplies these fallbacks:
   exists or `$BUNINU_HOME/tmp` otherwise; on other platforms, use the system
   temporary directory.
 - `SHELL`: inherited value, or a detected platform-appropriate shell.
+- `XDG_DATA_HOME`: inherited value, unless `buninu.xdgDataHome` names one; see
+  [Data directory](#data-directory-optional).
 - `TERM`: `xterm-256color` when unset.
 - `COLORTERM`: `truecolor` when unset.
 
@@ -534,6 +577,44 @@ from the directory containing `package.json`.
 ```
 
 Use `--shell <path-or-name>` for a one-time override.
+
+## Data directory (optional)
+
+Set `buninu.xdgDataHome` in `package.json` to point `XDG_DATA_HOME` somewhere
+of your choosing. `true` puts it inside the installation, at
+`$BUNINU_HOME/.local/share`:
+
+```json
+{
+  "buninu": {
+    "xdgDataHome": true
+  }
+}
+```
+
+A string names a directory instead, resolved from the directory containing
+`package.json` when it is relative:
+
+```json
+{
+  "buninu": {
+    "xdgDataHome": "/mnt/usb/shared-data"
+  }
+}
+```
+
+The directory is created at startup if it does not exist. Leave the setting
+`null` and `XDG_DATA_HOME` is passed through from the environment untouched.
+
+What this actually moves is where XDG-aware programs keep their data, and
+**bunmsh's command history is the one that matters here**: it lives at
+`$XDG_DATA_HOME/bunmsh/history`, so `true` is what makes a shell's history
+travel with a copied installation instead of staying on the machine.
+
+`HOME` is deliberately left alone by this setting. A shell started under
+Buninu keeps pointing at your own home directory, so SSH keys, Git
+configuration and anything else kept there still work, and bunmsh can still
+import the `~/.bash_history` or fish history you already had.
 
 ## Back key (Android, optional)
 

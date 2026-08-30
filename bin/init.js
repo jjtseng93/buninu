@@ -405,6 +405,19 @@ function getFreePort() {
   return port;
 }
 
+// buninu.xdgDataHome moves the data directory XDG-aware programs write to,
+// bunmsh's command history among them, without touching HOME: a shell started
+// here still finds the SSH keys and Git configuration in the user's own home.
+// `true` puts it inside the installation so it travels with a copied tree; a
+// string names a directory, resolved from the package.json directory when it
+// is relative, the way buninu.shell already resolves one.
+function configuredXdgDataHome() {
+  const configured = pkg.buninu?.xdgDataHome;
+  if (configured === true) return resolve(rootDir, ".local", "share");
+  if (typeof configured !== "string" || !configured.trim()) return null;
+  return isAbsolute(configured) ? configured : resolve(rootDir, configured);
+}
+
 async function createChildEnvironment(environment) {
   const packageDir = dirname(rootDir);
   const androidCacheDir = resolve(packageDir, "cache");
@@ -422,7 +435,10 @@ async function createChildEnvironment(environment) {
       ? resolve(homeDir, ".bashrc")
       : null;
 
+  const xdgDataHome = configuredXdgDataHome();
+
   mkdirSync(tmpDir, { recursive: true });
+  if (xdgDataHome) mkdirSync(xdgDataHome, { recursive: true });
 
   const inheritedPath = process.env.PATH || "";
   const hasTermuxExecPreload =
@@ -447,6 +463,7 @@ async function createChildEnvironment(environment) {
     TMPDIR: tmpDir,
     SHELL: process.env.SHELL || environment.shell,
     BUNINU_HOME: rootDir,
+    ...(xdgDataHome ? { XDG_DATA_HOME: xdgDataHome } : {}),
     ...(envFile ? { ENV: envFile } : {}),
     TERM: process.env.TERM || "xterm-256color",
     COLORTERM: process.env.COLORTERM || "truecolor",

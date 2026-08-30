@@ -35,6 +35,16 @@
   `--force` replaces everything without merging or checking. An existing
   installation is always named by absolute path before anything is written.
 
+- `buninu.xdgDataHome` points `XDG_DATA_HOME` at a directory of your choosing:
+  `true` puts it inside the installation at `$BUNINU_HOME/.local/share`, and a
+  string names one outright, resolved from the `package.json` directory when it
+  is relative. The directory is created at startup. What this moves in practice
+  is bunmsh's command history, which lives at `$XDG_DATA_HOME/bunmsh/history`,
+  so `true` is what makes a shell's history travel with a copied installation
+  instead of staying on the machine it was typed on. `HOME` is deliberately not
+  touched by it, so SSH keys and Git configuration in the user's own home keep
+  working and bunmsh can still import an existing `~/.bash_history`.
+
 ### Fixed
 
 - `HOME` no longer falls back to the package directory when the environment
