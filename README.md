@@ -758,13 +758,27 @@ in a way that leaves the back key broken.
 The bundled `.bashrc` provides `pspa` (`ps -eo pid,args`) and `pspac`, which
 writes that process list to `$HOME/.pspidargs.sh` and displays it with `glow`.
 Buninu preserves an existing `HOME` rather than replacing or modifying the
-user's home, and points `ENV` at the bundled file. Shells that honor `ENV` load
-it and get these aliases. Bash does not: an interactive Bash reads
-`$HOME/.bashrc` and ignores `ENV`, so on a system where Bash is the shell the
-bundled file is never loaded, and your own `$HOME/.bashrc` is left entirely
-alone.
+user's home, and points `ENV` at the bundled file. Whether that file is read
+depends entirely on the shell:
 
-To get the aliases in such a session, source the file from the prompt:
+| Where | Shell | The bundled `.bashrc` |
+|---|---|---|
+| Android, including a minapk APK | `/system/bin/sh`, which is mksh | Loaded through `ENV`; all of these aliases work |
+| Linux and macOS | Bash, usually | Not loaded — an interactive Bash reads `$HOME/.bashrc` and ignores `ENV` |
+| Windows | PowerShell, or `cmd.exe` | Not loaded, and `pspa`/`pspac` would not carry over: listing processes is spelled differently there |
+| `--local` | bunmsh | Not loaded, and neither is `$HOME/.bashrc` |
+
+So Android gets these aliases without doing anything, and everywhere else the
+bundled file sits unread — which also means your own `$HOME/.bashrc` is left
+entirely alone.
+
+On Windows these two helpers do not apply. Both wrap `ps -eo pid,args`, and
+that invocation has no counterpart: PowerShell does have `ps`, but as an alias
+for `Get-Process`, which takes its own options rather than those. List
+processes with `Get-Process` in PowerShell, or `tasklist` in `cmd.exe`.
+
+To get the aliases in a POSIX session that did not load them, source the file
+from the prompt:
 
 ```sh
 . "$BUNINU_HOME/.bashrc"
@@ -776,5 +790,8 @@ elsewhere the same line reads `. "/.bashrc"` and every shell you open either
 complains or, if that file happens to exist, sources something you did not
 mean to.
 
-bunmsh reads neither file; see
+Sourcing it under bunmsh reports `alias: pspac: invalid alias` and carries on.
+A bunmsh alias is a list of words, so `pspac`, which is two commands joined by
+`;` with a redirection in the first, cannot be one; the other four aliases,
+`pspa` included, are defined and work. See
 [Start a local shell in a Terminal](#start-a-local-shell-in-a-terminal-experimental).
