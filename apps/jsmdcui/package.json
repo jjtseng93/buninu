@@ -1,6 +1,6 @@
 {
   "name": "jsmdcui",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Markdown as a Common UI for Terminals and Web Browsers",
   "type": "module",
   "main": "./src/index.js",
@@ -15,5 +15,15 @@
     "edit": "bun ./edit",
     "check": "bun ./src/index.js --check",
     "clean": "bun ./clean.sh"
-  }
+  },
+  "assets": [
+    "demos",
+    "runtime",
+    "README.md",
+    "CHANGELOG.md",
+    "cdp-maze.js",
+    "src/cui/server.mjs",
+    "src/cui/rpc.mjs",
+    "testapp.md"
+  ]
 }
