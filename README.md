@@ -54,10 +54,19 @@ On Linux and Windows, follow the
 
 ### Start a remote shell in a Browser
 
-Run the npm package:
+To try it, run the npm package. This runs Buninu from the `npx` cache, which
+is a fine place to look around in and a bad place to keep anything:
 
 ```sh
 npx buninu
+```
+
+To keep it, install it somewhere of your own first, and start it from there
+from then on. See [Install and update](#install-and-update):
+
+```sh
+npx buninu --install ~/somewhere   # creates ~/somewhere/buninu as BUNINU_HOME
+bun ~/somewhere/buninu/bin/init.js
 ```
 
 Or run it from a source checkout:
@@ -105,13 +114,103 @@ etc.) stay available inside this shell too, same as in the browser session.
 
 ## Data & Persistence
 
-Running Buninu via `npx` works like a container: `npx` fetches the package
-into a cache directory and runs it from there, which is fine as a temporary
-working directory but isn't guaranteed to survive between runs (version
-bumps, `npx clear-npx-cache`, or normal cache eviction can all wipe it).
-Anything you want to keep permanently should be saved to another location on
-your machine — for example under your home directory — rather than left in
-whatever directory the shell happens to start in.
+Running Buninu via `npx` works like a container: `npx` fetches the package into
+a cache directory and runs it from there, which is fine as a temporary working
+directory but isn't guaranteed to survive between runs — version bumps,
+`npx clear-npx-cache`, or normal cache eviction can all wipe it. That directory
+is where the shell starts, so nothing left sitting in it is safe.
+
+The answer is to stop running it from there: [install it](#install-and-update)
+into a directory of your own, and `BUNINU_HOME` becomes somewhere you can keep
+things, edit files in, and carry to another machine.
+
+Two things live outside `BUNINU_HOME` either way, because they belong to the
+machine rather than to Buninu:
+
+- `HOME` stays your own home directory. Buninu never replaces it, so a shell
+  started here still finds your SSH keys, your Git configuration, and anything
+  else you keep there.
+- bunmsh writes its command history to `$XDG_DATA_HOME/bunmsh/history`, or
+  `$HOME/.local/share/bunmsh/history` when that is unset. It persists between
+  sessions, but it stays on the machine it was typed on rather than travelling
+  with an installation.
+
+## Install and update
+
+Copy this installation into a directory that is yours to keep, and run it
+from there instead of from the `npx` cache:
+
+```sh
+npx buninu --install ~/somewhere        # creates ~/somewhere/buninu as
+                                        # BUNINU_HOME
+npx buninu --strip-install ~/buninu     # ~/buninu itself becomes BUNINU_HOME,
+                                        # no directory of its own
+```
+
+Both default to the current directory. The two differ only in where
+`BUNINU_HOME` — the installation's own root, see
+[Environment](#environment) — ends up: below the directory you named, or at
+it. Once installed, start it with `bun $BUNINU_HOME/bin/init.js`.
+
+Installing over an existing Buninu updates it in place. Files are only added
+and overwritten, never deleted, so anything you added of your own is left
+alone: your `apps/<name>/` commands, your `bin/*.sh` overrides, the Bun
+binaries `bin/bun.sh` extracted, and any working file you left in the tree.
+
+Three files belong to you and to the package at the same time, and are merged
+rather than replaced:
+
+| File | What is kept |
+|---|---|
+| `package.json` | Your `buninu` section. Every other field, `version` included, comes from the new package. |
+| `apps/cmdlist` | Command names you added. They are appended below the shipped list. |
+| `.bashrc` | Your version, whenever it only adds lines to the shipped one — including lines inserted in the middle. |
+
+When `.bashrc` cannot be merged that way, because a line the package ships was
+changed or removed rather than added to, your file is left exactly as it is
+and the package's version is written beside it as `.bashrc.dist` for you to
+reconcile by hand. Nothing is overwritten silently.
+
+Every other file belongs to the package and is replaced. Before doing that, an
+update asks the registry what the installation originally shipped with and
+lists the files that no longer match, so editing one of the package's own files
+is not quietly undone:
+
+```
+buninu: found buninu@0.3.1 at /home/you/buninu
+buninu: comparing it against the published 0.3.1 for local changes...
+buninu: 1 file(s) differ from buninu@0.3.1 and will be replaced:
+  apps/xclip/xclip.js
+Update anyway? (y/N)
+```
+
+An existing installation is always named, by absolute path, before anything is
+written to it — `--force` included, since that one replaces it without asking.
+
+Only `y` continues; anything else cancels and leaves the installation
+untouched. The three merged files above are left out of that list, since they
+are already kept. `--yes` answers for you, which is also what a script or any
+other run without a terminal needs. Nothing about this is recorded inside the
+installation: the published package is the reference, so the check needs the
+network, and when it cannot run the update says so and goes ahead.
+
+Three more things are worth knowing about:
+
+- Installing from a checkout that already carries changes made since its
+  version was published — that is, while working on Buninu itself — compares
+  the installation against a reference its own files no longer match, so the
+  list names those unreleased changes rather than anything you did. Cloning it
+  and adding your own files on top does not.
+- A file the package **stopped** shipping is not removed from an existing
+  installation, because an update never deletes. Stale files accumulate
+  across updates.
+- `--force` skips both the merge and the check, and installs the shipped
+  versions over yours. It is also what installs into a non-empty directory that
+  is not a Buninu installation, which is otherwise refused.
+
+A source checkout's own `.git` is never copied into an installation, so
+installing into a directory that is itself a repository leaves that repository
+alone.
 
 ## Security
 

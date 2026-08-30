@@ -9,12 +9,15 @@ import {
   lutimesSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   readlinkSync,
   rmSync,
   symlinkSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
@@ -36,11 +39,25 @@ Install options:
   -i,  --install [dir]        Install into <dir>/${pkg.name}/ (default mode)
   -si, --strip-install [dir]  Install into <dir>/ directly, no top-level
                                directory of its own
-  -f,  --force                Install even when the destination is not empty
+  -f,  --force                Install over the destination as is, replacing
+                               local changes instead of merging them
+  -y,  --yes                  Do not ask before replacing files that were
+                               edited locally
   -h,  --help                 Show this help and exit
 
 The target directory defaults to the current directory, so running this
 script with no arguments installs into ./${pkg.name}/.
+
+Installing over an existing ${pkg.name} updates it. Files are only added and
+overwritten, never deleted, so anything the installation added of its own
+survives, and the three files both sides write to are merged:
+
+  package.json    the local buninu section is kept, every other field is
+                   taken from this package
+  apps/cmdlist    command names the installation added are kept
+  .bashrc         kept when it only adds to the shipped one, otherwise kept
+                   as is with the shipped version left beside it as
+                   .bashrc.dist
 
 Relative symbolic links are copied exactly as stored rather than followed,
 so bin/androidNativeLibs and the multicall command links survive the copy
@@ -51,6 +68,7 @@ and are rebuilt for the destination platform on the next normal startup.
 export function parseInstallArguments(arguments_) {
   let strip = false;
   let force = false;
+  let yes = false;
   let help = false;
   let target = null;
 
@@ -73,6 +91,8 @@ export function parseInstallArguments(arguments_) {
       setTarget(argument.slice("--strip-install=".length), "--strip-install");
     } else if (argument === "-f" || argument === "--force") {
       force = true;
+    } else if (argument === "-y" || argument === "--yes") {
+      yes = true;
     } else if (argument === "-h" || argument === "--help") {
       help = true;
     } else if (argument.startsWith("-")) {
@@ -82,7 +102,7 @@ export function parseInstallArguments(arguments_) {
     }
   }
 
-  return { strip, force, help, target: target ?? process.cwd() };
+  return { strip, force, yes, help, target: target ?? process.cwd() };
 }
 
 function hasEntries(path) {
@@ -93,15 +113,219 @@ function hasEntries(path) {
   }
 }
 
+function readTextOrNull(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function readJsonOrNull(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function isBuninuInstall(path) {
+  if (!existsSync(resolve(path, "bin", "init.js"))) return false;
+  return readJsonOrNull(resolve(path, "package.json"))?.name === pkg.name;
+}
+
+// True when every line of `base` is still present in `current`, in order, so
+// the only edits are insertions. A line inserted in the middle leaves the
+// lines below it untouched by this reading, which is what a line-by-line
+// comparison gets wrong: it reports everything past the insertion as changed.
+// Equivalent to the shipped version being a subsequence of the installed one,
+// which is the same thing as a line diff whose only operation is insert.
+function isAdditionsOnly(base, current) {
+  let index = 0;
+  for (const line of current) {
+    if (index < base.length && base[index] === line) index += 1;
+  }
+  return index === base.length;
+}
+
+// Matches how bin/init.js reads the list when it rebuilds the command links.
+function commandNames(text) {
+  return [...new Set(
+    text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#")),
+  )];
+}
+
+// Read what the destination owns before the copy overwrites it. Only the three
+// files a user and the package both write to need this; everything else is
+// owned outright by one side or the other.
+function readInstalledState(destination) {
+  return {
+    buninu: readJsonOrNull(resolve(destination, "package.json"))?.buninu,
+    cmdlist: readTextOrNull(resolve(destination, "apps", "cmdlist")),
+    bashrc: readTextOrNull(resolve(destination, ".bashrc")),
+  };
+}
+
+// Files applyMerge already protects. They show up as modified the moment the
+// installation is configured at all, so asking about them would be noise that
+// trains the answer rather than informing it.
+const MERGED_PATHS = new Set(["package.json", "apps/cmdlist", ".bashrc"]);
+
+const DIFF_TIMEOUT_MS = 60_000;
+
+// `bun pm diff <name>@<version> <dir>` compares the published version an
+// installation reports against the installation itself, so the registry holds
+// the pristine copy and nothing has to be recorded locally to find out what
+// the user changed. Files it calls added are theirs and are never deleted by
+// an update; only modified ones are about to be written over.
+async function findLocalChanges(destination, version) {
+  const child = Bun.spawn(
+    [
+      process.execPath, "pm", "diff",
+      `${pkg.name}@${version}`, destination,
+      "--name-only", "--json",
+    ],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+  );
+
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, DIFF_TIMEOUT_MS);
+
+  let status;
+  let stdout;
+  let stderr;
+  try {
+    [status, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+  } catch (error) {
+    return { files: null, error: error.message };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (timedOut) {
+    return { files: null, error: `bun pm diff did not finish within ${DIFF_TIMEOUT_MS / 1000}s` };
+  }
+
+  if (status !== 0) {
+    const reason = stderr.trim().split(/\r?\n/).at(-1);
+    return { files: null, error: reason || `bun pm diff exited with ${status}` };
+  }
+
+  let report;
+  try {
+    report = JSON.parse(stdout);
+  } catch {
+    return { files: null, error: "bun pm diff did not return JSON" };
+  }
+
+  return {
+    files: (report.files ?? [])
+      .filter((file) => file.status === "modified" && !MERGED_PATHS.has(file.path))
+      .map((file) => file.path),
+    error: null,
+  };
+}
+
+// Returns null when there is no terminal to ask at, which the caller reports
+// rather than treating as either answer.
+async function confirm(question) {
+  if (!process.stdin.isTTY) return null;
+  const readline = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return (await readline.question(question)).trim().toLowerCase() === "y";
+  } finally {
+    readline.close();
+  }
+}
+
+function applyMerge(destination, installed) {
+  const notes = [];
+
+  // package.json: the package owns every field except the buninu section,
+  // which is the user's configuration and travels with the installation.
+  if (installed.buninu !== undefined) {
+    const path = resolve(destination, "package.json");
+    const shipped = readJsonOrNull(path);
+    if (shipped) {
+      shipped.buninu = installed.buninu;
+      writeFileSync(path, `${JSON.stringify(shipped, null, 2)}\n`);
+      notes.push("package.json: kept the local buninu section");
+    }
+  }
+
+  // apps/cmdlist: a set of names, so the shipped list plus whatever names the
+  // installation added is the whole merge. Appending only the extras keeps
+  // this idempotent across repeated updates.
+  if (installed.cmdlist !== null) {
+    const path = resolve(destination, "apps", "cmdlist");
+    const shippedText = readTextOrNull(path) ?? "";
+    const shipped = commandNames(shippedText);
+    const extras = commandNames(installed.cmdlist).filter((name) => !shipped.includes(name));
+    if (extras.length) {
+      writeFileSync(
+        path,
+        `${shippedText.replace(/\n*$/, "\n")}\n# Added by this installation, kept across updates\n${extras.join("\n")}\n`,
+      );
+      notes.push(`apps/cmdlist: kept ${extras.length} local command name(s): ${extras.join(", ")}`);
+    }
+  }
+
+  // .bashrc: free-form text the user edits directly, so it can only be merged
+  // when the shipped lines all survive in it. Without a copy of the version
+  // this installation was built from there is no third side to merge against,
+  // so anything else is reported rather than guessed at.
+  if (installed.bashrc !== null) {
+    const path = resolve(destination, ".bashrc");
+    const shipped = readTextOrNull(path) ?? "";
+    if (installed.bashrc !== shipped) {
+      writeFileSync(path, installed.bashrc);
+      if (isAdditionsOnly(shipped.split(/\r?\n/), installed.bashrc.split(/\r?\n/))) {
+        notes.push(".bashrc: kept, it only adds to the shipped one");
+      } else {
+        writeFileSync(`${path}.dist`, shipped);
+        notes.push(".bashrc: kept as is, the shipped version is now .bashrc.dist");
+      }
+    }
+  }
+
+  return notes;
+}
+
+// Never copied into an installation. A source checkout's repository is not
+// part of Buninu, it is large, and copying it into a destination that is
+// itself a repository would write over that repository's own objects and refs.
+// Only the top level is checked: the tree ships no nested repository.
+const EXCLUDED_ENTRIES = new Set([".git"]);
+
+function copySources(source) {
+  return readdirSync(source)
+    .filter((entry) => !EXCLUDED_ENTRIES.has(entry))
+    .map((entry) => resolve(source, entry));
+}
+
 function copyTree(source, destination) {
+  // Naming the entries instead of copying `source/.` is what leaves the
+  // excluded ones behind; listing them explicitly also keeps dotfiles such as
+  // .bashrc in, which a bare glob would drop.
+  const sources = copySources(source);
+
   const cp = Bun.which("cp");
   if (cp) {
-    // `source/.` copies the directory contents, dotfiles such as .bashrc
-    // included; -a implies -d, so symbolic links are recreated as links
-    // instead of being followed. -f matches the fs path's force option: it
-    // unlinks and retries a destination file that cannot be opened, which a
-    // reinstall over read-only files (.git/objects is mode 444) needs.
-    const result = Bun.spawnSync([cp, "-af", `${source}/.`, `${destination}/`], {
+    // -a implies -d, so symbolic links are recreated as links instead of being
+    // followed. -f matches the fs path's force option: it unlinks and retries a
+    // destination file that cannot be opened, which reinstalling over
+    // read-only files (.git/objects is mode 444) needs.
+    const result = Bun.spawnSync([cp, "-af", ...sources, `${destination}/`], {
       stdout: "inherit",
       stderr: "inherit",
     });
@@ -109,7 +333,7 @@ function copyTree(source, destination) {
     return "cp -af";
   }
 
-  copyEntry(source, destination);
+  for (const entry of sources) copyEntry(entry, resolve(destination, basename(entry)));
   return "node:fs";
 }
 
@@ -178,6 +402,59 @@ function copyEntry(source, destination) {
   utimesSync(destination, stats.atime, stats.mtime);
 }
 
+// Returns true when the update should not go ahead.
+async function confirmLocalChanges(destination, version, options) {
+  if (!version) {
+    console.error(`${pkg.name}: it does not report a version, so it cannot be checked for local changes`);
+    return false;
+  }
+
+  // Said before the check rather than after: it reaches the registry, so it can
+  // sit there for a while with nothing on screen to explain the wait.
+  console.error(`${pkg.name}: comparing it against the published ${version} for local changes...`);
+
+  const { files, error } = await findLocalChanges(destination, version);
+
+  // The check needs the registry, so it cannot run offline or against a version
+  // that was never published. Whether anything was edited locally is then
+  // unknown, which is not the same as knowing there was nothing: ask when there
+  // is someone to ask, and only fall through to updating when there is not.
+  if (error) {
+    console.error(`${pkg.name}: could not check it for local changes: ${error}`);
+    if (options.yes) return false;
+
+    const answer = await confirm("Update without knowing what it would replace? (y/N) ");
+    if (answer === null) {
+      console.error(`${pkg.name}: no terminal to ask at, updating anyway`);
+      return false;
+    }
+    if (!answer) {
+      console.error(`${pkg.name}: update cancelled, nothing was changed`);
+      return true;
+    }
+    return false;
+  }
+
+  if (!files.length) return false;
+
+  console.error(
+    `${pkg.name}: ${files.length} file(s) differ from ${pkg.name}@${version} and will be replaced:`,
+  );
+  for (const file of files) console.error(`  ${file}`);
+
+  if (options.yes) return false;
+
+  const answer = await confirm("Update anyway? (y/N) ");
+  if (answer === null) {
+    fail("not running in a terminal, pass --yes to update anyway");
+  }
+  if (!answer) {
+    console.error(`${pkg.name}: update cancelled, nothing was changed`);
+    return true;
+  }
+  return false;
+}
+
 export async function runInstall(arguments_ = []) {
   const options = parseInstallArguments(arguments_);
   if (options.help) {
@@ -196,14 +473,49 @@ export async function runInstall(arguments_ = []) {
     fail(`install destination is inside this installation: ${destination}`);
   }
 
-  if (!options.force && existsSync(destination) && hasEntries(destination)) {
-    fail(`install destination is not empty, pass --force to install anyway: ${destination}`);
+  // An existing installation is updated rather than refused: the copy only
+  // ever adds and overwrites, and the files both sides write to are merged
+  // afterwards. --force skips the merge and leaves the shipped versions.
+  const occupied = existsSync(destination) && hasEntries(destination);
+  const update = occupied && isBuninuInstall(destination);
+  if (occupied && !update && !options.force) {
+    fail(
+      `install destination is not empty and is not a ${pkg.name} installation, ` +
+      `pass --force to install over it: ${destination}`,
+    );
   }
+
+  // Named before anything is written, on every path that has found an existing
+  // installation: --force replaces it without asking, so that is the one that
+  // most needs to say which directory it is about to overwrite.
+  if (update) {
+    const installedVersion = readJsonOrNull(resolve(destination, "package.json"))?.version;
+    console.error(
+      installedVersion
+        ? `${pkg.name}: found ${pkg.name}@${installedVersion} at ${destination}`
+        : `${pkg.name}: found an unversioned ${pkg.name} installation at ${destination}`,
+    );
+
+    if (options.force) {
+      console.error(`${pkg.name}: --force, replacing it without checking for local changes`);
+    } else {
+      const cancelled = await confirmLocalChanges(destination, installedVersion, options);
+      if (cancelled) return 1;
+    }
+  }
+
+  const installed = update && !options.force ? readInstalledState(destination) : null;
 
   mkdirSync(destination, { recursive: true });
   const method = copyTree(rootDir, destination);
+  const notes = installed ? applyMerge(destination, installed) : [];
 
-  console.error(`${pkg.name}@${pkg.version}: installed to ${destination} (${method})`);
+  const action = update ? (options.force ? "overwrote" : "updated") : "installed to";
+  console.error(`${pkg.name}@${pkg.version}: ${action} ${destination} (${method})`);
+  for (const note of notes) console.error(`  ${note}`);
+  if (update && options.force) {
+    console.error("  --force: local package.json, apps/cmdlist and .bashrc were replaced");
+  }
   console.error(`Start it with: bun ${resolve(destination, "bin", "init.js")}`);
   return 0;
 }

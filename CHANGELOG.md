@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.4.0 - 2026-08-30
+
+### Added
+
+- `--install [dir]` (`-i`) and `--strip-install [dir]` (`-si`) copy the running
+  installation into a directory that outlives the `npx` cache. `--install`
+  creates `<dir>/buninu` as the new `BUNINU_HOME`, `--strip-install` makes
+  `<dir>` itself that root, and both default to the current directory. The
+  implementation is `bin/install.js`, which runs on its own as well as being
+  imported by `bin/init.js`; run directly with no arguments it installs.
+  Relative symbolic links are recreated exactly as stored rather than followed,
+  so `bin/androidNativeLibs -> ../..` stays a link instead of dragging the
+  parent tree into the copy. `cp -a` is used when `cp` is on `PATH`, and an
+  equivalent `node:fs` walk otherwise; the two were verified to agree on
+  content, link targets, permissions and whole-second timestamps across every
+  entry of the tree.
+- Installing over an existing Buninu updates it in place. The copy only ever
+  adds and overwrites, so `apps/<name>/` commands, `bin/*.sh` overrides and the
+  Bun binaries `bin/bun.sh` extracted are left alone, and the three files that
+  belong to the package and to the user at once are merged: the local `buninu`
+  section of `package.json` is kept, command names added to `apps/cmdlist` are
+  kept, and `.bashrc` is kept whenever it only adds lines to the shipped one,
+  including lines inserted in the middle. A `.bashrc` that cannot be merged
+  that way is left exactly as it is, with the shipped version written beside it
+  as `.bashrc.dist`.
+- Before replacing the package's own files, an update runs `bun pm diff`
+  against the version the installation reports and lists the files that no
+  longer match it, then asks before continuing. Nothing is recorded inside the
+  installation to make this work — the published package is the reference — so
+  the check needs the network, and when it cannot run, or does not finish
+  within 60 seconds, it asks rather than assuming there was nothing to lose.
+  `--yes` answers ahead of time, which a run without a terminal needs;
+  `--force` replaces everything without merging or checking. An existing
+  installation is always named by absolute path before anything is written.
+
+### Fixed
+
+- `HOME` no longer falls back to the package directory when the environment
+  does not set it. Windows does not set `HOME`, so a Windows session had its
+  home pointed at the disposable `npx` cache, taking anything written there —
+  bunmsh's command history included — with it when the cache was cleared. It
+  now falls back to the operating system's own home directory for the user.
+
 ## 0.3.2 - 2026-08-29
 
 - Added bunmsh to bin and cmdlist
