@@ -129,9 +129,22 @@ function readJsonOrNull(path) {
   }
 }
 
-function isBuninuInstall(path) {
-  if (!existsSync(resolve(path, "bin", "init.js"))) return false;
-  return readJsonOrNull(resolve(path, "package.json"))?.name === pkg.name;
+// Null when the directory is an installation to update, otherwise the reason it
+// was not taken for one. Saying which check failed is what separates "this is
+// someone else's directory" from "this installation is damaged", which
+// otherwise arrive as the same refusal.
+//
+// Identity rests on the name in package.json alone. A missing bin/init.js means
+// an installation is broken, not that it is somebody else's, and refusing there
+// would leave --force as the only way to repair it — which would take the
+// user's own configuration down with it instead of merging it back.
+function notInstallReason(path) {
+  const manifest = readJsonOrNull(resolve(path, "package.json"));
+  if (!manifest) return "it has no readable package.json";
+  if (manifest.name !== pkg.name) {
+    return `its package.json is "${manifest.name}", not ${pkg.name}`;
+  }
+  return null;
 }
 
 // True when every line of `base` is still present in `current`, in order, so
@@ -477,12 +490,11 @@ export async function runInstall(arguments_ = []) {
   // ever adds and overwrites, and the files both sides write to are merged
   // afterwards. --force skips the merge and leaves the shipped versions.
   const occupied = existsSync(destination) && hasEntries(destination);
-  const update = occupied && isBuninuInstall(destination);
+  const reason = occupied ? notInstallReason(destination) : null;
+  const update = occupied && reason === null;
   if (occupied && !update && !options.force) {
-    fail(
-      `install destination is not empty and is not a ${pkg.name} installation, ` +
-      `pass --force to install over it: ${destination}`,
-    );
+    console.error(`${pkg.name}: ${destination} is not empty, and ${reason}`);
+    fail("pass --force to install over it, or name another directory");
   }
 
   // Named before anything is written, on every path that has found an existing
@@ -495,6 +507,10 @@ export async function runInstall(arguments_ = []) {
         ? `${pkg.name}: found ${pkg.name}@${installedVersion} at ${destination}`
         : `${pkg.name}: found an unversioned ${pkg.name} installation at ${destination}`,
     );
+
+    if (!existsSync(resolve(destination, "bin", "init.js"))) {
+      console.error(`${pkg.name}: it is missing bin/init.js; updating restores it`);
+    }
 
     if (options.force) {
       console.error(`${pkg.name}: --force, replacing it without checking for local changes`);
