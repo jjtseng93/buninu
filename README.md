@@ -25,20 +25,6 @@
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete architecture, portability model,
 and self-bootstrapping design.
 
-## Differences from upstream
-
-### The bundled jsmdcui
-
-  * Is configured editor-first by MDCUI_DEFAULT_EDIT
-  * The command `jmi` with a Markdown file opens the normal terminal editor.(js micro editor)
-  * The command `jsmdcui` preserves its original behavior: `apps/jsmdcui/jsmdcui.sh`, which starts its `tui` entry point with `--mdcui` when running markdown Apps, and forwards all command-line arguments.
-  * Adds the Buninu-only `# syntax: markdown` marker for Markdown highlighting in extensionless files; upstreaming may be considered later.
-
-### The bundled jsgotty
-
-  * No longer depends on or ships `node-pty`. 
-  * Its PTY is provided by Bun's terminal API.
-
 ## Install Bun
 
 Buninu requires [Bun](https://bun.com). On Android, install Bun in Termux:
@@ -67,8 +53,11 @@ root, yours to edit and to carry to another machine. See
 [Install and update](#install-and-update):
 
 ```sh
-npx buninu --install ~/somewhere   # creates ~/somewhere/buninu
-bun ~/somewhere/buninu/bin/init.js # ...which is now BUNINU_HOME
+# Creates ~/somewhere/buninu, which is now BUNINU_HOME
+npx buninu --install ~/somewhere
+
+# Start it from there from now on
+bun ~/somewhere/buninu/bin/init.js
 ```
 
 Or run it from a source checkout:
@@ -81,19 +70,23 @@ The launcher automatically chooses a free TCP port and detects an available
 shell for the current platform. Other arguments are forwarded to jsgotty:
 
 ```sh
-npx buninu --credential user:pass
+# Serve on port 9000 instead of picking a free one
 npx buninu --port 9000
-npx buninu --jsgotty --help
 
-# public: listen on every interface, reachable from other devices on the network, be cautious!
-npx buninu -a 0.0.0.0
+# Ask for a username and password before handing over the terminal
+npx buninu --credential user:pass
+
+# Accept connections from other machines, not just this one. By default the
+# terminal is reachable only from the computer it runs on; this opens it to
+# anything that can reach this machine over the network, and the terminal is
+# a working shell, so give it a password at the same time.
+npx buninu -a 0.0.0.0 --credential user:pass
 ```
 
-As the first argument, `--jsgotty`, `--jsmdcui`, or `--musl-la` bypasses the
-shell/command startup flow entirely: it spawns that app directly with every
-remaining argument forwarded to it, and exits with its exit code. Use this to
-reach an app's own options directly, for example `npx buninu --jsgotty --help`
-to see jsgotty's actual flag reference instead of Buninu's.
+Read [Security](#security) before using that last one.
+
+Buninu's own options are listed under
+[Command-line usage](#command-line-usage).
 
 ### Start a local shell in a Terminal (experimental)
 
@@ -111,14 +104,17 @@ To keep it, install it the same way as above and pass `--local` to the
 installed copy from then on. See [Install and update](#install-and-update):
 
 ```sh
-npx buninu --install ~/somewhere         # creates ~/somewhere/buninu as
-                                         # BUNINU_HOME
+# Creates ~/somewhere/buninu, which is now BUNINU_HOME
+npx buninu --install ~/somewhere
+
+# Start bunmsh from there from now on
 bun ~/somewhere/buninu/bin/init.js --local
 ```
 
-This matters more here than it does for the browser terminal: a shell you
-actually work in accumulates history, aliases and commands of your own, and
-under `npx` all of that sits in a cache directory that is not yours to keep.
+Command history is kept in your own home directory either way, so it survives
+`npx`. What does not is anything you add to the installation itself — aliases
+in its `.bashrc`, commands of your own under `apps/` — since that lives in the
+package, and under `npx` the package is a cache directory.
 See [Data & Persistence](#data--persistence).
 
 Or run it from a source checkout:
@@ -170,23 +166,27 @@ Copy this installation into a directory that is yours to keep, and run it
 from there instead of from the `npx` cache:
 
 ```sh
-npx buninu --install ~/somewhere        # creates ~/somewhere/buninu as
-                                        # BUNINU_HOME
-npx buninu --strip-install ~/buninu     # ~/buninu itself becomes BUNINU_HOME,
-                                        # no directory of its own
+# Creates ~/somewhere/buninu as BUNINU_HOME
+npx buninu --install ~/somewhere
+
+# Makes ~/buninu itself BUNINU_HOME, with no directory of its own
+npx buninu --strip-install ~/buninu
 ```
 
 Both default to the current directory. The two differ only in where
 `BUNINU_HOME` — the installation's own root, see
 [Environment](#environment) — ends up: below the directory you named, or at
-it.
+it. `npx buninu --install --help` lists every install option in full.
 
 An installation is started the same two ways `npx buninu` is, by running its
 own `bin/init.js` instead of the package name:
 
 ```sh
-bun $BUNINU_HOME/bin/init.js            # terminal in a browser, as usual
-bun $BUNINU_HOME/bin/init.js --local    # bunmsh in this terminal (experimental)
+# Terminal in a browser, as usual
+bun $BUNINU_HOME/bin/init.js
+
+# bunmsh in this terminal (experimental)
+bun $BUNINU_HOME/bin/init.js --local
 ```
 
 Every option described under [Start](#start) works the same way here, `--local`
@@ -268,19 +268,48 @@ arguments override the flags baked into `scripts.start`. Also pass
 are not a substitute for authentication once the server is reachable from
 outside the machine.
 
-## Command-line information
+## Command-line usage
+
+These are flags to `bin/init.js` itself, resolved before Buninu starts.
+Everything else on the command line is forwarded to jsgotty.
 
 ```text
 -h, --help       Show command-line help
 -V, --version    Show the Buninu, Bun, platform, and architecture versions
---readme          Render README.md in the terminal
---changelog       Render CHANGELOG.md in the terminal
+--readme         Render README.md in the terminal
+--changelog      Render CHANGELOG.md in the terminal
+--local          Start bunmsh in this terminal instead of a browser terminal
+
+-i,  --install [dir]        Install into <dir>/buninu (default: .)
+-si, --strip-install [dir]  Install into <dir> itself
+--export [output.tgz]       Export this installation as a tarball
+--export-config [out.json]  Export this package.json
+
+--shell <path|name>   Override buninu.shell for this run
+--command <command>   Override buninu.command for this run
+```
+
+`--install --help` lists the install options in full, including `--force` and
+`--yes`; see [Install and update](#install-and-update) for what an update does
+with files you changed. The other groups are covered by
+[Start](#start), [Export](#export), [Shell selection](#shell-selection-optional)
+and [Startup command](#startup-command-optional).
+
+### Launching a bundled app directly
+
+As the **first** argument, `--jsgotty`, `--jsmdcui`, or `--musl-la` bypasses the
+shell and startup-command flow entirely: it spawns that app with every
+remaining argument forwarded to it, and exits with its exit code.
+
+```text
 --jsgotty [args...]  Spawn jsgotty directly and exit with its exit code
 --jsmdcui [args...]  Spawn jsmdcui directly and exit with its exit code
 --musl-la [args...]  Spawn musl-la directly and exit with its exit code
 ```
 
-These are flags to `bin/init.js` itself, resolved before Buninu starts.
+Use it to reach an app's own options, which Buninu would otherwise interpret
+as its own — `npx buninu --jsgotty --help` shows jsgotty's flag reference
+rather than this one.
 
 ## Commands inside the shell
 
@@ -354,8 +383,12 @@ host accepts either and lists both in its `_discover` response, so either name
 works from the CLI, from `rpcraw`, and as an `import`.
 
 ```sh
-native-bridge openwv 1 https://example.com   # load it, screen unchanged
-native-bridge showwv 1                       # now bring it to the front
+# Load it, screen unchanged
+native-bridge openwv 1 https://example.com
+
+# Now bring it to the front
+native-bridge showwv 1
+
 native-bridge evalwv 1 document.title
 native-bridge currwv
 ```
@@ -389,8 +422,11 @@ and a URL is loaded into that WebView and brought to the front (`openWebView`
 then `showWebView`) instead of being handed to the system's default handler.
 
 ```sh
-MINAPK_WEBVIEW=1 xdg-open https://example.com   # in the app WebView, on screen
-export MINAPK_WEBVIEW=1                         # ...or for the whole session
+# In the app WebView, on screen
+MINAPK_WEBVIEW=1 xdg-open https://example.com
+
+# ...or for the whole session
+export MINAPK_WEBVIEW=1
 ```
 
 `0` is the console, so it navigates the terminal page away -- the back key
@@ -402,6 +438,23 @@ the host serves that same file through its content:// provider. A value that
 is not a plain integer is reported on stderr and ignored rather than guessed
 at, an unset or empty value keeps the default behavior, and a WebView the host
 does not have falls back to the default handler after saying so.
+
+## Differences from upstream
+
+The versions of jsmdcui and jsgotty bundled here differ from the ones their
+own projects ship.
+
+### The bundled jsmdcui
+
+  * Is configured editor-first by MDCUI_DEFAULT_EDIT
+  * The command `jmi` with a Markdown file opens the normal terminal editor.(js micro editor)
+  * The command `jsmdcui` preserves its original behavior: `apps/jsmdcui/jsmdcui.sh`, which starts its `tui` entry point with `--mdcui` when running markdown Apps, and forwards all command-line arguments.
+  * Adds the Buninu-only `# syntax: markdown` marker for Markdown highlighting in extensionless files; upstreaming may be considered later.
+
+### The bundled jsgotty
+
+  * No longer depends on or ships `node-pty`. 
+  * Its PTY is provided by Bun's terminal API.
 
 ## Export
 
