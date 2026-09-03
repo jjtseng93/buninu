@@ -765,17 +765,31 @@ depends entirely on the shell:
 |---|---|---|
 | Android, including a minapk APK | `/system/bin/sh`, which is mksh | Loaded through `ENV`; all of these aliases work |
 | Linux and macOS | Bash, usually | Not loaded — an interactive Bash reads `$HOME/.bashrc` and ignores `ENV` |
-| Windows | PowerShell, or `cmd.exe` | Not loaded, and `pspa`/`pspac` would not carry over: listing processes is spelled differently there |
-| `--local` | bunmsh | Not loaded, and neither is `$HOME/.bashrc` |
+| Windows | PowerShell, or `cmd.exe` | Not loaded, and these aliases would not carry over: listing processes is spelled differently there |
+| `--local` | bunmsh | Not loaded, and not needed: bunmsh answers all five names itself |
 
 So Android gets these aliases without doing anything, and everywhere else the
 bundled file sits unread — which also means your own `$HOME/.bashrc` is left
 entirely alone.
 
-On Windows these two helpers do not apply. Both wrap `ps -eo pid,args`, and
+Under `--local` these are bunmsh's own, not aliases read from a file, so they
+work with nothing sourced — and the two process helpers are not quite the same
+two commands. `pspa` prints the same PID-and-command-line table, but through
+bunmsh's own process query, which also answers on Windows, where
+`ps -eo pid,args` has no counterpart. `pspac` colours that table inline as
+shell syntax: it writes no `$HOME/.pspidargs.sh` and does not need `glow`.
+Both are PATH-fallback builtins, so a real `pspa` or `pspac` on `PATH` still
+wins and `builtin pspa` selects bunmsh's explicitly. Its `ls`, `grep` and
+`diff` colour aliases are built in as well, which is why nothing in the bundled
+file is missing from a `--local` session. See
+[bunmsh's PATH-fallback builtins](apps/bunmsh/README.md#path-fallback-builtins).
+
+On Windows the two *aliases* do not apply. Both wrap `ps -eo pid,args`, and
 that invocation has no counterpart: PowerShell does have `ps`, but as an alias
 for `Get-Process`, which takes its own options rather than those. List
-processes with `Get-Process` in PowerShell, or `tasklist` in `cmd.exe`.
+processes with `Get-Process` in PowerShell, or `tasklist` in `cmd.exe` — or use
+`--local`, where bunmsh's builtins of the same names answer by querying
+`Win32_Process` through PowerShell and print the same two columns.
 
 To get the aliases in a POSIX session that did not load them, source the file
 from the prompt:
@@ -790,8 +804,11 @@ elsewhere the same line reads `. "/.bashrc"` and every shell you open either
 complains or, if that file happens to exist, sources something you did not
 mean to.
 
-Sourcing it under bunmsh reports `alias: pspac: invalid alias` and carries on.
-A bunmsh alias is a list of words, so `pspac`, which is two commands joined by
-`;` with a redirection in the first, cannot be one; the other four aliases,
-`pspa` included, are defined and work. See
+That is for a Bash or mksh session that did not load the file — the remote
+route on Linux and macOS. A `--local` session has no reason to source it, since
+bunmsh defines all five names itself. Sourcing it there anyway still reports
+`alias: pspac: invalid alias` and carries on: a bunmsh alias is a list of
+words, and `pspac` is two commands joined by `;` with a redirection in the
+first, so it cannot be one — but the builtin of that name is already there, and
+an alias that fails to define leaves it reachable. See
 [Start a local shell in a Terminal](#start-a-local-shell-in-a-terminal-experimental).
