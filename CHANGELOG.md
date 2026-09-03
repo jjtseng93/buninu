@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.2 - 2026-09-03
+
+### Changed
+
+- Update the bundled bunmsh from 0.2.0 to 0.3.3, which is what a `--local`
+  session runs. It gains a `curl` PATH-fallback builtin written on Bun's own
+  `fetch`, so a device that ships no `curl` binary can still run the download
+  and API scripts that expect one; `pspa` and `pspac`, the process listing this
+  tree's `.bashrc` aliases used to be the only way to get; and a `kill` that
+  works on Windows. Its JavaScript mode binds `$` to the shell's own variable
+  table, so `$.HOME` reads a shell variable and `$.TAG = "v1"` writes one that
+  later commands see, and completion learned shell variable names, command
+  names inside `$(`, and JavaScript lines. A real `curl`, `pspa` or `pspac` in
+  `PATH` still wins over any of the builtins; `builtin curl ...` selects
+  bunmsh's. Its own [CHANGELOG](apps/bunmsh/CHANGELOG.md) has the rest.
+
+### Fixed
+
+- The process-list helpers section, left behind by the bunmsh update above,
+  still described `--local` as a session with neither the bundled `.bashrc` nor
+  `$HOME/.bashrc`, and sent you to source the bundled file to get the aliases
+  back — where `pspac`, being two commands joined by `;`, would fail to define
+  as a bunmsh alias. bunmsh now has `pspa` and `pspac` as PATH-fallback
+  builtins, and colour aliases for `ls`, `grep` and `diff` of its own, so a
+  `--local` session already answers all five of those names and has no reason
+  to source anything. The section says so now, and says where the builtins
+  differ from the aliases they stand in for: `pspac` colours the table inline
+  rather than writing `$HOME/.pspidargs.sh` and paging it through `glow`, and
+  `pspa` answers on Windows as well, by querying `Win32_Process` through
+  PowerShell, where `ps -eo pid,args` has no counterpart — so the paragraph
+  ruling Windows out is now about the aliases rather than about both. Nothing
+  changed for the other routes: Android still loads the bundled file through
+  `ENV` for the shell jsgotty starts, and a remote Bash or mksh session on
+  Linux or macOS still sources it by hand.
+
 ## 0.4.1 - 2026-08-30
 
 ### Fixed
