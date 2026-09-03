@@ -44,13 +44,14 @@ import { findIsRegularBuiltin, runFind } from "./find.js";
 import { main as startFileServer, parseServeArguments, waitForInterrupt } from "../serve.js";
 import { main as catFancy } from "./cat-fancy.js";
 import { parseCatOperands } from "./cat-operands.js";
+import { runCurl } from "./curl.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const DEFAULT_ALIASES = {
   ls: ["ls", "--color=auto"],
-  diff: ["diff", "--color=auto"],
   grep: ["grep", "--color=auto"],
+  diff: ["diff", "--color"],
 };
 const DEFAULT_COMMAND_PATH = process.platform === "win32"
   ? (environmentValue(process.env, "PATH") ?? "")
@@ -1574,6 +1575,19 @@ const builtins = {
     let status = 0, stderr = "";
     for (; i < argv.length; i++) {
       const pid = Number(argv[i]);
+      //  Signal 0 asks whether a PID can be signalled without touching it,
+      //  which taskkill has no way to express — and which process.kill does
+      //  answer on Windows. Everything else goes through taskkill there.
+      if (process.platform === "win32" && signal !== 0) {
+        if (!Number.isInteger(pid) || pid <= 0) {
+          status = 1;
+          stderr += `bunmsh: kill: ${argv[i]}: arguments must be process ids\n`;
+          continue;
+        }
+        const failure = await runWindowsKill(pid);
+        if (failure) { status = 1; stderr += `bunmsh: kill: ${argv[i]}: ${failure}\n`; }
+        continue;
+      }
       try { process.kill(pid, signal); }
       catch (error) { status = 1; stderr += `bunmsh: kill: ${argv[i]}: ${error.message}\n`; }
     }
@@ -1905,6 +1919,38 @@ async function runTrFallback(argv, _state, input) {
     else if (!del) output += to[Math.min(index, Math.max(0, to.length - 1))] ?? "";
   }
   return result(0, output);
+}
+
+//  `curl` only ever runs when the system has none, so it inherits the
+//  streaming rules the other fallbacks use: write straight through when the
+//  bytes are headed for the terminal or a pipeline stage, buffer when the
+//  caller is capturing them.
+async function runCurlFallback(argv, state, input, context = {}) {
+  const streamStdout = state.pipelineChild ||
+    (!context.captureStdout && !context.options?.stdoutSink);
+  const streamStderr = state.pipelineChild || !context.captureStderr;
+  const stdout = [];
+  const stderr = [];
+  const io = {
+    cwd: nativePath(state.cwd),
+    env: state.env,
+    stdoutIsTTY: streamStdout && Boolean(process.stdout.isTTY),
+    readStdin: () => readFallbackInput(input),
+    async writeStdout(chunk) {
+      const data = bytes(chunk);
+      if (streamStdout) await writeStream(process.stdout, data); else stdout.push(data);
+    },
+    async writeStderr(text) {
+      const data = bytes(text);
+      if (streamStderr) await writeStream(process.stderr, data); else stderr.push(data);
+    },
+  };
+  try {
+    const status = await runCurl(argv, io);
+    return result(status, concatBytes(stdout), concatBytes(stderr));
+  } catch (error) {
+    return result(2, concatBytes(stdout), concatBytes([...stderr, bytes(`curl: ${error.message}\n`)]));
+  }
 }
 
 async function runTeeFallback(argv, state, input) {
@@ -2342,6 +2388,282 @@ export function runUnameFallback(argv, system = {}) {
   return result(0, `${[..."snrvmp"].filter((flag) => flags.has(flag)).map((flag) => values[flag]).join(" ")}\n`);
 }
 
+//  Windows has no `ps`, so the same two columns come out of Win32_Process.
+//  bun-taskmgr reads `Select-Object ProcessId, CommandLine`, but that is
+//  formatted as a console table, which truncates a long command line with an
+//  ellipsis — exactly the part pspa exists to show. Building the line inside
+//  PowerShell instead keeps it whole, and falls back to the image name for a
+//  system process whose CommandLine is null.
+const PSPA_WINDOWS_QUERY = "Get-CimInstance Win32_Process | ForEach-Object { " +
+  "$_.ProcessId.ToString() + ' ' + $(if ($_.CommandLine) { $_.CommandLine } else { $_.Name }) }";
+
+export function parseWindowsProcessList(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*(\d+) ?(.*)$/.exec(line);
+    //  A command line containing a newline arrives as continuation lines with
+    //  no PID of their own. There is nothing to attribute them to, so they are
+    //  dropped rather than guessed at.
+    if (match) rows.push({ pid: Number(match[1]), args: match[2].trim() });
+  }
+  return rows.sort((first, second) => first.pid - second.pid);
+}
+
+//  Laid out like `ps -eo pid,args`, so both platforms print the same shape:
+//  a right-aligned PID column at least as wide as procps' own, then the
+//  command line.
+export function formatProcessTable(rows) {
+  const width = rows.reduce((widest, row) => Math.max(widest, String(row.pid).length), 5);
+  const lines = [`${"PID".padStart(width)} COMMAND`];
+  for (const row of rows)
+    lines.push(`${String(row.pid).padStart(width)} ${row.args}`.trimEnd());
+  return `${lines.join("\n")}\n`;
+}
+
+//  Windows has no signals to deliver. libuv turns SIGTERM, SIGINT, and
+//  SIGKILL into an unconditional TerminateProcess, refuses every other name
+//  with ENOSYS, and in no case touches the target's children. `taskkill`
+//  reaches all of it, and `/T /F` is the form bun-taskmgr verified on
+//  Windows 11, so that is what a terminating signal becomes here.
+export function windowsKillCommand(pid) {
+  return ["taskkill", "/PID", String(pid), "/T", "/F"];
+}
+
+//  taskkill reports its own failures in prose ("ERROR: The process "123" not
+//  found."). Strip its prefix so the line reads as one of ours.
+export function taskkillFailure(status, stdout, stderr) {
+  if (status === 0) return null;
+  const message = (stderr.trim() || stdout.trim()).replace(/^ERROR:\s*/i, "");
+  return message || `taskkill exited with status ${status}`;
+}
+
+async function runWindowsKill(pid) {
+  let proc;
+  try {
+    proc = Bun.spawn({
+      cmd: windowsKillCommand(pid),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch (error) { return `taskkill: ${error.message}`; }
+  const [status, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  return taskkillFailure(status, stdout, stderr);
+}
+
+//  `pspa` answers the question a shell with no process viewer keeps running
+//  into: which PID belongs to which command line. POSIX hands that to
+//  `ps -eo pid,args` and passes the output straight through — reading it over
+//  a pipe is also what stops procps from cutting long command lines at the
+//  terminal width, which it does when its stdout is a terminal.
+//  Rows out of `ps`, for the callers that render the listing themselves
+//  rather than passing it through.
+export function parsePosixProcessList(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (/^\s*PID\s+COMMAND\s*$/.test(line)) continue;
+    const match = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (match) rows.push({ pid: Number(match[1]), args: match[2].trimEnd() });
+  }
+  return rows;
+}
+
+async function queryProcessList(name, state) {
+  const windows = process.platform === "win32";
+  const command = windows
+    ? ["powershell", "-NoProfile", "-Command", PSPA_WINDOWS_QUERY]
+    : ["ps", "-eo", "pid,args"];
+  let proc;
+  try {
+    proc = Bun.spawn({
+      cmd: command,
+      cwd: nativePath(state.cwd),
+      env: state.env,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch (error) {
+    return { failure: result(127, "", `bunmsh: ${name}: ${command[0]}: ${error.message}\n`) };
+  }
+  const [status, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+  ]);
+  if (status !== 0) {
+    return {
+      failure: result(status, "",
+        stderr || `bunmsh: ${name}: ${command[0]}: exited with status ${status}\n`),
+    };
+  }
+  return { windows, output: new Uint8Array(stdout), stderr };
+}
+
+async function runPspaFallback(argv, state) {
+  if (argv.length > 1)
+    return result(2, "", `bunmsh: pspa: unexpected operand: ${argv[1]}\n`);
+  const query = await queryProcessList("pspa", state);
+  if (query.failure) return query.failure;
+  return query.windows
+    ? result(0, formatProcessTable(parseWindowsProcessList(decoder.decode(query.output))), query.stderr)
+    : result(0, query.output, query.stderr);
+}
+
+//  The COMMAND column of a process listing is a shell command line, so it is
+//  highlighted as one. The rules are micro's `syntax/sh.yaml` and the colours
+//  are its `colorschemes/monokai.micro` colour-links, which is also the
+//  palette catfancy already uses — so a command line reads the same here, in
+//  a previewed script, and in the editor.
+export const SH_COLORS = {
+  comment: Bun.color("#75715E", "ansi-16m"),
+  identifier: Bun.color("#66D9EF", "ansi-16m"),
+  constant: Bun.color("#AE81FF", "ansi-16m"),
+  string: Bun.color("#E6DB74", "ansi-16m"),
+  statement: Bun.color("#F92672", "ansi-16m"),
+  type: Bun.color("#66D9EF", "ansi-16m"),
+  special: Bun.color("#A6E22E", "ansi-16m"),
+  path: "\x1b[2m",
+  header: "\x1b[1m",
+  reset: "\x1b[0m",
+};
+
+//  sh.yaml's rules, in its order. A later rule paints over an earlier one,
+//  which is how micro resolves them too: that is why the flag rule beats the
+//  command names it overlaps, and why `$var` ends up an identifier rather
+//  than the `special` its `$` matched first.
+const SH_RULES = [
+  { name: "constant", pattern: /\b[0-9]+\b/g },
+  { name: "statement", pattern: /\b(break|case|continue|do|done|elif|else|esac|exec|exit|fi|for|function|if|in|return|select|then|trap|until|wait|while)\b/g },
+  { name: "special", pattern: /[`$<>!=&~^{}();\][]+/g },
+  { name: "type", pattern: /\b(cd|command|echo|eval|export|getopts|let|local|read|set|shift|time|umask|unset)\b/g },
+  { name: "type", pattern: /\b((g|ig)?awk|bash|dash|find|getopt|\w{0,4}grep|kill|killall|\w{0,4}less|make|pkill|sed|sh|tar)\b/g },
+  { name: "type", pattern: /\b(base64|basename|cat|chcon|chgrp|chmod|chown|chroot|cksum|comm|cp|csplit|cut|date|dd|df|dir|dircolors|dirname|du|env|expand|expr|factor|false|fmt|fold|head|hostid|id|install|join|link|ln|logname|ls|md5sum|mkdir|mkfifo|mknod|mktemp|mv|nice|nl|nohup|nproc|numfmt|od|paste|pathchk|pinky|pr|printenv|printf|ptx|pwd|readlink|realpath|rm|rmdir|runcon|seq|(sha1|sha224|sha256|sha384|sha512)sum|shred|shuf|sleep|sort|split|stat|stdbuf|stty|sum|sync|tac|tail|tee|test|time|timeout|touch|tr|true|truncate|tsort|tty|uname|unexpand|uniq|unlink|users|vdir|wc|who|whoami|yes)\b/g },
+  { name: "statement", pattern: /(\s|^)(--?[A-Za-z0-9][\w-]*)/g, group: 2 },
+  { name: "identifier", pattern: /\$\{[\w:!%&=+#~@*^$?, .\-/[\]]+\}/g },
+  { name: "identifier", pattern: /\$([0-9!#@*$?-]|[A-Za-z_]\w*)/g },
+];
+
+//  Quoted strings and comments are regions in sh.yaml, not patterns: they
+//  swallow whatever is inside them. Finding their spans first is what keeps
+//  a `#` inside a quoted argument from turning the rest of the line into a
+//  comment, and a quote inside a comment from opening a string.
+function shellRegions(text) {
+  const regions = [];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      let end = i + 1;
+      while (end < text.length) {
+        if (text[end] === "\\") { end += 2; continue; }
+        if (text[end] === ch) { end++; break; }
+        end++;
+      }
+      end = Math.min(end, text.length);
+      regions.push({ start: i, end, name: "string" });
+      i = end - 1;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /\s/.test(text[i - 1]))) {
+      regions.push({ start: i, end: text.length, name: "comment" });
+      break;
+    }
+  }
+  return regions;
+}
+
+//  `base` paints runs before any rule runs, so a rule matching inside one
+//  still wins — the same layering micro applies between a scheme's default
+//  and its rules.
+export function highlightShellCommand(text, base = []) {
+  const painted = new Array(text.length).fill(null);
+  for (const run of base)
+    for (let i = run.start; i < Math.min(run.end, text.length); i++) painted[i] = run.name;
+  const regions = shellRegions(text);
+  const inRegion = new Array(text.length).fill(false);
+  for (const region of regions)
+    for (let i = region.start; i < region.end; i++) inRegion[i] = true;
+  for (const rule of SH_RULES) {
+    for (const match of text.matchAll(rule.pattern)) {
+      const value = rule.group ? match[rule.group] : match[0];
+      if (!value) continue;
+      const start = match.index + (rule.group ? match[0].indexOf(value) : 0);
+      for (let i = start; i < start + value.length; i++)
+        if (!inRegion[i]) painted[i] = rule.name;
+    }
+  }
+  for (const region of regions)
+    for (let i = region.start; i < region.end; i++) painted[i] = region.name;
+
+  let output = "";
+  for (let i = 0; i < text.length;) {
+    const name = painted[i];
+    let end = i;
+    while (end < text.length && painted[end] === name) end++;
+    const chunk = text.slice(i, end);
+    output += name ? `${SH_COLORS[name]}${chunk}${SH_COLORS.reset}` : chunk;
+    i = end;
+  }
+  return output;
+}
+
+//  Two additions to what sh.yaml describes, because a process listing is not
+//  a script. The directory in front of the program is dimmed: that is the
+//  part an absolute path buries the answer in, and `ps` prints a lot of it.
+//  And the program's own name is painted `type` whether or not it is one of
+//  the names sh.yaml lists — the file has to guess a command from a word
+//  list, while here the first token is known to be one.
+//  Both are base layers, so a rule still paints over them, and a quoted
+//  program keeps the string colour a quoted string gets everywhere else.
+//  A kernel thread — `[kworker/0:1]`, one bracketed token with no program,
+//  path, or arguments in it — recedes whole instead of being taken apart.
+export function colorProcessCommand(args) {
+  if (!args) return "";
+  if (/^\[.+\]$/.test(args)) return `${SH_COLORS.path}${args}${SH_COLORS.reset}`;
+  const end = args.indexOf(" ");
+  const program = end < 0 ? args.length : end;
+  const separator = Math.max(
+    args.lastIndexOf("/", program - 1),
+    args.lastIndexOf("\\", program - 1),
+  );
+  const base = separator < 0
+    ? [{ start: 0, end: program, name: "type" }]
+    : [
+        { start: 0, end: separator + 1, name: "path" },
+        { start: separator + 1, end: program, name: "type" },
+      ];
+  return highlightShellCommand(args, base);
+}
+
+export function colorProcessTable(rows) {
+  //  A PID is a number, and sh.yaml paints a number `constant`.
+  const { constant: PID, header: HEADER, reset: RESET } = SH_COLORS;
+  const width = rows.reduce((widest, row) => Math.max(widest, String(row.pid).length), 5);
+  const lines = [`${HEADER}${"PID".padStart(width)} COMMAND${RESET}`];
+  //  Nothing but colour separates this from formatProcessTable's output, so
+  //  a row with no command line keeps the same trimmed tail that one has.
+  for (const row of rows)
+    lines.push(`${PID}${String(row.pid).padStart(width)}${RESET}` +
+      (row.args ? ` ${colorProcessCommand(row.args)}` : ""));
+  return `${lines.join("\n")}\n`;
+}
+
+//  `pspac` is `pspa` coloured. Like catfancy it always colours rather than
+//  sniffing for a terminal, so the plain listing stays one command away.
+async function runPspacFallback(argv, state) {
+  if (argv.length > 1)
+    return result(2, "", `bunmsh: pspac: unexpected operand: ${argv[1]}\n`);
+  const query = await queryProcessList("pspac", state);
+  if (query.failure) return query.failure;
+  const text = decoder.decode(query.output);
+  const rows = query.windows ? parseWindowsProcessList(text) : parsePosixProcessList(text);
+  return result(0, colorProcessTable(rows), query.stderr);
+}
+
 const fallbackBuiltins = {
   basename: async (argv) => {
     const i = argv[1] === "--" ? 2 : 1;
@@ -2377,6 +2699,7 @@ const fallbackBuiltins = {
     return result(output.status, output.stdout, output.stderr);
   },
   cp: runBunShellCpFallback,
+  curl: runCurlFallback,
   head: runHeadFallback,
   tail: (argv, state, input) => runTextFilter(argv, state, input, "tail"),
   wc: runWcFallback,
@@ -2396,6 +2719,8 @@ const fallbackBuiltins = {
   ln: async (argv, state) => runLnFallback(argv, state),
   chmod: async (argv, state) => runChmodFallback(argv, state),
   uname: async (argv) => runUnameFallback(argv),
+  pspa: runPspaFallback,
+  pspac: runPspacFallback,
   bunmsh: runBunmshFallback,
   bun: runBunFallback,
   serve: async (argv, state) => {
@@ -2675,13 +3000,26 @@ function parseCompoundScript(source) {
 // ShellSyntaxError whose message starts with "unterminated". An interactive
 // front end can use this, mirroring mksh's PS2 continuation prompt, to tell
 // "still typing this command" apart from a real syntax error.
+export function isJavaScriptMode(source) {
+  return source.trimStart().startsWith("Bun.");
+}
+
 export function needsMoreInput(source) {
   source = normalizeSource(source);
   try {
     if (hasCompoundSyntax(source)) parseCompoundScript(source);
     else tokenize(source, { strict: true });
   } catch (error) {
-    return error instanceof ShellSyntaxError && error.message.startsWith("unterminated");
+    if (!(error instanceof ShellSyntaxError && error.message.startsWith("unterminated")))
+      return false;
+    //  JavaScript has no line-continuation backslash outside a string
+    //  literal: there it is a syntax error, not a request for another line,
+    //  so asking for one only leads the typing somewhere that cannot parse.
+    //  An unterminated quote still continues, because that is JavaScript's
+    //  own line continuation and the evaluator does accept it.
+    if (isJavaScriptMode(source) && error.message === "unterminated line continuation")
+      return false;
+    return true;
   }
   return false;
 }
@@ -3394,12 +3732,15 @@ export async function execute(source, state = createState(), io = {}) {
     return execution;
   }
   const rawSource = source.trimStart();
-  if (rawSource.startsWith("Bun.")) {
+  if (isJavaScriptMode(rawSource)) {
     let execution;
     const previousCwd = process.cwd();
     try {
       try {
         process.chdir(nativePath(state.cwd));
+        
+        const $ = state.env
+        
         const value = await eval(rawSource);
         execution = result(0, value === undefined ? "" : `${formatValue(value)}\n`);
       } finally {
@@ -3416,11 +3757,11 @@ export async function execute(source, state = createState(), io = {}) {
     return execution;
   }
   const lines = source.match(/.*(?:\n|$)/g)?.filter(Boolean) ?? [];
-  if (lines.some((line) => line.trimStart().startsWith("Bun."))) {
+  if (lines.some((line) => isJavaScriptMode(line))) {
     const parts = [];
     let shellSource = "";
     for (const line of lines) {
-      if (!line.trimStart().startsWith("Bun.")) {
+      if (!isJavaScriptMode(line)) {
         shellSource += line;
         continue;
       }

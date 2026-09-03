@@ -2,6 +2,182 @@
 
 All notable user-visible changes to bunmsh are documented here.
 
+## [0.3.3] - 2026-09-03
+
+### Fixed
+
+- Pass `--color` rather than `--color=auto` in the default `diff` alias.
+  Toybox's `diff` — the one Android answers `/system/bin/diff` with — spells
+  the option without a `=WHEN` argument and rejects the longer form outright
+  (`diff: Unknown option 'color=auto'`, status 2), so an unqualified `diff`
+  produced an error instead of a comparison. GNU diffutils accepts either
+  spelling, so nothing changes where that is the `diff` on `PATH`. The `ls` and
+  `grep` aliases keep `--color=auto`, which both of those do accept.
+
+  BusyBox `diff` has no colour option under either spelling and answers
+  `diff: unrecognized option: color`. Override the alias with `alias diff=diff`
+  where `diff` is BusyBox, as it is on Alpine.
+
+## [0.3.2] - 2026-09-01
+
+### Added
+
+- Bind `$` to the shell's variable table inside the highest-priority
+  JavaScript mode, so the two languages share one set of variables rather than
+  passing strings across a boundary. `Bun.e, $.HOME` reads one — exported or
+  not — `$.TAG = "v1"` writes one that later shell commands and external child
+  processes both see, `delete $.NAME` unsets one, and `Object.keys($)`
+  enumerates them. It is the live table rather than a copy, which is what makes
+  a write visible immediately; it also means a write bypasses `readonly`, so
+  `$` is an escape hatch as much as a convenience. Bun Shell's own `Bun.$` is
+  reached through the `Bun` object and is unaffected by the binding. Values
+  are shell values, so they are strings: `$.X + 1` concatenates unless
+  converted, and assigning a non-string stores it as-is, leaving JavaScript
+  with a number under that name while every name the shell set stays a string.
+  The README says so with examples.
+
+- Complete shell variable names. Typing `$HO` now ghosts `$HOME` and Tab
+  offers every matching name; `${HO` completes to `${HOME}`, closing the brace
+  it opened, and `${#HO` does the same. Names come from the shell's own
+  variable table, so unexported names — and anything JavaScript mode wrote
+  through `$` — are offered alongside the environment. It applies wherever an
+  expansion would happen (mid-word, after `X=`, inside double quotes, and in
+  command position), stays quiet inside single quotes, and is not offered for
+  the other things a `$` can start: `$(`, `$?`, `$1`, `$$`, and a
+  backslash-escaped `\$` (the backslashes are counted, so `\\$HO` still
+  suggests). A bare `$` ghosts nothing but still lists everything on Tab, the
+  way an empty word lists every file. Where both apply, the history ghost still
+  wins, since it completes the whole line.
+- Complete command names inside `$(`. A command substitution starts a new
+  command, but the completer used to read `$(l` as one long word and look for
+  a file by that name; it now offers commands there, and files after the
+  command, the way it does at the start of a line.
+
+- Complete on a JavaScript line too, reading it as JavaScript rather than as
+  shell text. After `$.` it offers shell variable names, and inside an unclosed
+  string literal it completes the text back to the opening quote as a path —
+  so `Bun.file("/tm` completes without the trailing space that used to be
+  needed to make the completer see a path at all, and without trimming that
+  space back off afterwards. A template's `${...}` counts as code again, so
+  `$.` completes inside it. A bare `$` completes nothing there, since in
+  JavaScript it is the variable table itself and a name only begins after the
+  dot. Where neither applies only the history ghost is offered.
+
+### Fixed
+
+- Stop asking a JavaScript line to continue when it cannot. A line ending in a
+  bare backslash used to get the shell's PS2 prompt, but a backslash outside a
+  string literal is a syntax error in JavaScript, so whatever was typed next
+  was guaranteed not to parse. An unterminated string or template still
+  continues, because that is JavaScript's own line continuation and the
+  evaluator does accept it — `Bun.e, "abc\` and `def"` on two lines prints
+  `abcdef`. The rule that decides JavaScript mode is now one exported
+  function, so the prompt, the completer and the evaluator cannot disagree
+  about what a line is.
+
+## [0.3.1] - 2026-09-01
+
+### Added
+
+- Ship `LICENSE`, `LICENSE-MKSH`, and `LICENSE-MICRO` as packaged assets, so
+  a standalone executable carries them the way it already carried the README
+  and this changelog. It matters for `LICENSE-MICRO` in particular: the binary
+  contains the highlighting rules transcribed from micro's
+  `runtime/syntax/sh.yaml`, and an MIT notice has to travel with the code it
+  covers, not only with the repository. Reading them back out of a build is
+  `--assets-extract` on the tar back end, or `builtin serve 'B:/~BUN'` on an
+  `ASSETS_BUNFS=1` one; both land the licences under
+  `assets/bunmsh@<version>/`, and the README's licence section says so.
+
+### Changed
+
+- Say plainly in the README and in `LICENSE-MICRO` that `catfancy` takes five
+  of micro's `monokai.micro` colour-links for its JSON, rather than only that
+  its colours happen to be the same five values. The palette was taken from
+  micro, so the attribution now says so.
+
+## [0.3.0] - 2026-09-01
+
+### Added
+
+- Add a `curl` PATH-fallback builtin implemented on Bun's own `fetch`, so a
+  device that ships no `curl` binary can still run the download and API
+  scripts that expect one. A real `curl` in `PATH` still wins;
+  `builtin curl ...` selects this one. A URL with no scheme gets one —
+  `http://`, or `https://` when the port is `443`, or whatever
+  `--proto-default` names — so `curl localhost:8080` and `curl example.com`
+  behave the way they do with the real curl.
+  - Downloads: `-o`, `-O`, `-J`, `--output-dir`, `--create-dirs`, `-a`, and
+    `-C -`/`-C OFFSET` resume, which sizes the partial file, asks for the rest
+    with a `Range` header, appends when the server answers `206`, rewrites when
+    a `200` says the range was ignored, and treats `416` as "already complete".
+  - Request bodies: `-X`, `-H` (including curl's `'Name;'` empty-value and
+    `'Name:'` removal forms), `-d`, `--data-raw`, `--data-binary`,
+    `--data-ascii`, `--data-urlencode`, `--json`, `-G`, `-F`,
+    `--form-string`, `-T`, `-u`, `--oauth2-bearer`, `-A`, `-e`, `-b`, `-r`,
+    `--compressed`, and `-x`, with `@file` and `@-` reading a body from a file
+    or from stdin — enough to call a JSON API such as OpenAI's chat
+    completions endpoint from the shell.
+  - Responses and reporting: `-i`, `-I`, `-D`, `-w` with the usual
+    `%{variable}` set, `-L` with `--max-redirs` and the `301`/`302`/`303`
+    POST-to-GET rule, `-f`, `--fail-with-body`, `-k`, `-m`,
+    `--connect-timeout`, `--retry` and friends, `-s`, `-S`, `-v`, `-#`, and a
+    curl-shaped progress meter that appears only when the body is not being
+    painted on the terminal. curl's exit codes are reproduced, including `22`,
+    `6`, `7`, `28`, `47`, `60`, and `2`.
+  - Short clusters parse the way curl's do, so the invocations packaging
+    scripts use — `-kLO`, `-C - -kLO`, `-fsSL`, `-kfsS`, `-#k` — work
+    unchanged. TLS-material and connection-tuning options (`--cacert`,
+    `--cert`, `--interface`, `--limit-rate`, `-4`, `--http2`, and the rest)
+    are parsed and then ignored so a script does not die on them.
+  - Bodies stream, so `curl -N` on a server-sent-events endpoint prints each
+    chunk as it arrives and a large download never buffers in memory.
+  - `test/reference.test.js` compares the builtin against the system `curl`
+    over a local server: bodies, exit codes, redirect handling, request bodies,
+    and `--write-out` output are byte-for-byte identical, and `-i` matches once
+    header order and casing — which `fetch` does not preserve — are normalised.
+
+- Add a `pspa` PATH-fallback builtin that lists every process as a PID and its
+  full command line, so a device with no process viewer still has one. POSIX
+  runs `ps -eo pid,args` and passes its output through untouched — reading it
+  over a pipe is also what stops procps from cutting long command lines at the
+  terminal width. Windows, which has no `ps`, queries `Win32_Process` through
+  PowerShell and lays the same two columns out itself, using the image name
+  for a system process that reports no command line. It takes no options; pipe
+  it into `grep` to narrow the listing and into `kill` to act on it.
+- Add `pspac`, the same process listing with the PID and the command line
+  coloured. The COMMAND column is a shell command line, so it is highlighted
+  as one, following micro's `syntax/sh.yaml` rules and its
+  `colorschemes/monokai.micro` colour-links — the palette `catfancy` already
+  uses — down to its region handling (a `#` inside a quoted argument does not
+  open a comment) and its rule precedence (`--cat` is a flag, not the
+  coreutils `cat`). Two things a listing needs that a script does not: the
+  directory in front of the program is dimmed, and the program's own name is
+  coloured as a command whether or not sh.yaml's word lists have heard of it.
+  Like `catfancy` it always colours; strip the colour from its output and
+  `pspa`'s is what remains, which is what its tests assert.
+- Add `LICENSE-MICRO` and a "Syntax highlighting" section under the README's
+  licence heading, covering what the colouring inherits from
+  [micro](https://github.com/zyedidia/micro): `pspac` transcribes the rules of
+  its `runtime/syntax/sh.yaml` (MIT "Expat", Copyright (c) 2020: Zachary
+  Yedidia, et al.), and both `pspac` and `catfancy` paint with the
+  colour-links of its `runtime/colorschemes/monokai.micro` (micro itself: MIT,
+  Copyright (c) 2016-2020: Zachary Yedidia, et al.), which renders Wimer
+  Hazenberg's Monokai palette. No micro file is bundled, but the rules are
+  transcribed from one, so the licence notice ships with them.
+
+### Fixed
+
+- Make `kill` work on Windows. It went through the runtime's `process.kill`,
+  which there turns SIGTERM, SIGINT, and SIGKILL into an unconditional
+  `TerminateProcess`, refuses every other signal name outright, and in no case
+  reaches the target's children. A terminating signal is now sent as
+  `taskkill /PID PID /T /F` — the form bun-taskmgr verified on Windows 11 —
+  so every signal name works and a process tree goes down with its root. The
+  name is still not honoured as a signal, because Windows has none to deliver;
+  `-0` continues to probe through the runtime, since `taskkill` has no way to
+  ask whether a PID exists without killing it.
+
 ## [0.2.0] - 2026-08-29
 
 ### Added

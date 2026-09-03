@@ -7,16 +7,21 @@ import {
   execute,
   executeArgv,
   executeBunShellFallback,
+  isJavaScriptMode,
   needsMoreInput,
   pipelineChildState,
 } from "./shell.js";
 import {
   CommandIndex,
   FileIndex,
+  VariableIndex,
   completionContext,
   fitGhost,
   historyGhost,
+  javascriptContext,
   nextGhostChunk,
+  variableCompletion,
+  variableContext,
 } from "./completion.js";
 import { readAssetText } from "../single-exe/assetsHelper.js";
 import { buildEarlyExit, stringifyNonPrimitiveDefineValues } from "../single-exe/compiled.js";
@@ -166,6 +171,41 @@ async function interactive(state) {
   let mouseTracking = terminal && state.mouseTracking;
   const commandIndex = new CommandIndex(builtinNames());
   const fileIndex = new FileIndex();
+  const variableIndex = new VariableIndex();
+  //  A `$` being typed outranks the word it sits in: `$ED` is a variable
+  //  name, not a command or a file, wherever on the line it appears. Single
+  //  quotes are the exception, since nothing expands inside them.
+  const variableMatch = (line, cursor, context) => {
+    if (context.quote === "'") return null;
+    const variable = variableContext(line, cursor);
+    return variable ? { variable } : null;
+  };
+  //  JavaScript mode is decided on the whole source the evaluator will see,
+  //  which on a continued line is what is pending plus what is being typed.
+  //  `pending` is declared further down, next to the loop that fills it; it
+  //  is always initialised by the time a keystroke can reach this.
+  const javascriptLine = (line) => isJavaScriptMode(pending ? `${pending}\n${line}` : line);
+  //  What a JavaScript line offers: a shell variable name after `$.`, a path
+  //  inside a string literal, and nothing where neither applies — shell
+  //  word-splitting would only produce noise there.
+  const javascriptMatches = (line, cursor) => {
+    const js = javascriptContext(line, cursor);
+    if (js?.kind === "variable")
+      return {
+        js,
+        names: variableIndex.matches(state, js.prefix).map((name) => variableCompletion(js, name)),
+        first: variableIndex.first(state, js.prefix),
+        complete: (name) => variableCompletion(js, name),
+      };
+    if (js?.kind === "path")
+      return {
+        js,
+        names: fileIndex.matches(js.prefix, state),
+        first: fileIndex.first(js.prefix, state),
+        complete: (name) => name,
+      };
+    return null;
+  };
   state.history = await importedHistory(state.env);
   const history = state.history;
   // Marks everything just loaded (including whatever another session has
@@ -347,7 +387,17 @@ async function interactive(state) {
   }, onPaste) : process.stdin;
   const completer = (line) => {
     commandIndex.refreshIfChanged(state);
+    if (javascriptLine(line)) {
+      const found = javascriptMatches(line, line.length);
+      return found?.names.length ? [found.names, found.js.text] : [[], line];
+    }
     const context = completionContext(line);
+    const found = variableMatch(line, line.length, context);
+    if (found) {
+      const names = variableIndex.matches(state, found.variable.prefix);
+      if (names.length)
+        return [names.map((name) => variableCompletion(found.variable, name)), found.variable.text];
+    }
     if (context.command) {
       return [
         context.prefix.includes("/")
@@ -460,15 +510,39 @@ async function interactive(state) {
     let renderTask = null;
     const currentGhost = () => {
       if (readline.cursor !== readline.line.length) return null;
+      if (javascriptLine(readline.line)) {
+        const found = javascriptMatches(readline.line, readline.cursor);
+        //  An empty name matches everything, so it ghosts nothing; Tab still
+        //  lists it all, the way it does for an empty word in shell text.
+        if (found?.js.prefix && found.first)
+          return found.complete(found.first).slice(found.js.text.length);
+        return historyGhost(history, readline.line);
+      }
       const context = completionContext(readline.line, readline.cursor);
+      const found = variableMatch(readline.line, readline.cursor, context);
+      //  An empty name would match every variable there is, so a bare `$`
+      //  ghosts nothing; Tab still lists them all, the way it does for files.
+      const variableGhost = () => {
+        if (!found?.variable.prefix) return null;
+        const name = variableIndex.first(state, found.variable.prefix);
+        return name
+          ? variableCompletion(found.variable, name).slice(found.variable.text.length)
+          : null;
+      };
       if (context.command) {
+        const ghost = variableGhost();
+        if (ghost) return ghost;
         const match = context.prefix.includes("/")
           ? fileIndex.first(context.prefix, state)
           : commandIndex.first(context.prefix);
         return match ? match.slice(context.prefix.length) : null;
       }
+      //  History still wins where it applies: it completes the whole line,
+      //  which reaches further than one variable name.
       const fromHistory = historyGhost(history, readline.line);
       if (fromHistory) return fromHistory;
+      const ghost = variableGhost();
+      if (ghost) return ghost;
       const match = fileIndex.first(context.prefix, state);
       return match ? match.slice(context.prefix.length) : null;
     };

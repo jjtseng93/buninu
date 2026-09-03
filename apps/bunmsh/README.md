@@ -196,6 +196,87 @@ the right. Neither form invokes Bun Shell by itself; their purpose here is
 only to enter the highest-priority evaluator and then execute unrestricted
 JavaScript.
 
+#### Use `$` to read and write shell variables
+
+Inside JavaScript mode, `$` is the shell's own variable table — the live
+object, not a copy — so the two languages share one set of variables instead of
+passing strings between them:
+
+```sh
+Bun.e, $.HOME                      # read
+Bun.e, $.PATH.split(":").length    # read, as a JavaScript value
+Bun.e; void ($.TAG = "v" + Date.now())
+echo "$TAG"                        # the shell sees what JavaScript wrote
+```
+
+A shell variable is visible to JavaScript whether or not it was exported, and a
+name JavaScript writes behaves like any other shell variable from that point
+on, including being inherited by external child processes. `delete $.NAME`
+unsets one, and `Object.keys($)` enumerates them.
+
+An assignment is an expression, so its value is printed like any other result.
+Wrap it in `void (...)` — as above — when the assignment is the point and the
+echo is not.
+
+**Everything the shell put there is a string.** A shell has no other type, so
+`+` concatenates where you may have meant arithmetic — convert first:
+
+```sh
+X=3
+Bun.e, $.X + 1            # "31"
+Bun.e, Number($.X) + 1    # 4
+```
+
+The reverse direction does not convert for you either: `$.N = 42` stores the
+number 42 in the table. The shell and any child process still read `42`,
+because they stringify at their own boundary, but JavaScript now sees a number
+under that name and a string under every name the shell set — so the same
+expression means two different things depending on who last wrote the variable:
+
+```sh
+X=3
+Bun.e; void ($.N = 42)
+Bun.e, [$.X + 1, $.N + 1]   # [ "31", 43 ]
+```
+
+Assign strings (`$.N = String(count)`) to keep one rule for every name.
+
+Two things to know:
+
+- `$` is bound only inside JavaScript mode, and only shadows the bare name.
+  `Bun.$`, Bun Shell's own API, is reached through the `Bun` object and is
+  unaffected.
+- Writing through `$` mutates the table directly, so it bypasses `readonly`.
+  `readonly R=locked` still refuses `R=other` from the shell, but
+  `$.R = "other"` goes through. That makes it an escape hatch, and a way to
+  break an invariant the shell was asked to hold.
+
+#### One line at a time
+
+JavaScript mode runs the line it was given. It does not continue across lines
+the way a shell command does, because the shell's continuation marker is not
+JavaScript: a bare `\` at the end of a line is a syntax error there, not a
+request for another line, so the prompt does not ask for one.
+
+The exception is the place where JavaScript has a line continuation of its
+own — inside a string or template literal — and there it works, because the
+prompt keeps collecting lines while the quote is open and JavaScript joins them
+itself:
+
+```sh
+Bun.e, "abc\
+def"
+```
+
+```text
+abcdef
+```
+
+An unbalanced bracket does not continue: the shell's parser is looking for
+shell syntax, not JavaScript's, so `Bun.e; function f() {` runs as typed and
+reports its own syntax error. For code that spans lines, put it in a file and
+`import` it, or keep the statements on one line separated by `;`.
+
 #### Use `Bun.sha` as a shared area (hack)
 
 `Bun.sha` is normally Bun's SHA hashing function. JavaScript functions are
@@ -333,6 +414,61 @@ tab r      # back to ~/project/src
 
 ## Special Interactions
 
+### Completion and ghost suggestions
+
+Tab completes the word being typed, and a dim **ghost** shows the first match
+inline ahead of the cursor; the Right arrow accepts it. What is offered depends
+on where the cursor is:
+
+| Where | Offered |
+| --- | --- |
+| A command name | Builtins, aliases, and executables on `PATH` |
+| Inside `$(` | Command names again — a substitution starts a new command |
+| A `$` being typed | Shell variable names |
+| A JavaScript line | `$.` completes a variable name, a string literal a path |
+| Anywhere else | Files and directories, and history for the ghost |
+
+**Variables.** `$HO` suggests `$HOME`, and `${HO` suggests `${HOME}` — the
+brace it opened is closed for it. `${#HO` works the same way. Names come from
+the shell's own variable table, so unexported names and anything JavaScript
+mode wrote through `$` are offered alongside the environment.
+
+The suggestion follows the shell's own rules about when a `$` expands:
+
+- It works wherever an expansion would: mid-word, on the right of an
+  assignment (`X=$HO`), inside double quotes, and where a command name would
+  go (`$ED`).
+- Single quotes suppress it, because nothing expands inside them.
+- Nothing is offered for the other things a `$` can start, since none of them
+  is a name in progress: `$(` (a command substitution), `$?`, `$1`, `$$`
+  (already complete), and `\$` (a literal dollar sign — the backslashes are
+  counted, so `\\$HO` does suggest).
+- A bare `$` has no name to match on, so it ghosts nothing. Tab still lists
+  every variable, the way Tab on an empty word lists every file.
+
+Where both could apply, history wins the ghost: it completes the whole line,
+which reaches further than a single variable name.
+
+**On a JavaScript line** — one starting with `Bun.`, the same test the
+evaluator dispatches on — the line is read as JavaScript instead, because shell
+word-splitting says nothing useful about it. Two things complete there:
+
+```sh
+Bun.e, $.HO              # -> $.HOME
+Bun.e, Bun.file("/tm     # -> a path, completed inside the string
+```
+
+- After `$.`, shell variable names. A bare `$` completes nothing here: in
+  JavaScript it is the variable table itself, and a name only begins after the
+  dot.
+- Inside an unclosed string literal — `"`, `'`, or a template — the text back
+  to the opening quote is completed as a path. No trailing space is needed to
+  make the completer see it, and nothing has to be trimmed back off afterwards.
+- A template's `${...}` is code again, so `$.` completes inside it and the
+  path resumes after the closing brace.
+- Where neither applies, only the history ghost is offered; shell completion
+  would just produce noise on a JavaScript line.
+
 ### Keyboard shortcuts
 
 - `Ctrl-C`: Interrupts the current input or foreground operation and returns to
@@ -453,7 +589,7 @@ Run `builtin` with no arguments to print the registered names at runtime.
 | `.`, `source` | `FILE [ARG ...]` |
 | `realpath` | One or more paths |
 | `umask` | No operand to display, or an octal mask |
-| `kill` | `-l`, `-SIGNAL`, `-NUMBER` |
+| `kill` | `-l`, `-SIGNAL`, `-NUMBER`; on Windows, where the runtime can only `TerminateProcess` a subset of signals and never reaches the children, a terminating signal is sent as `taskkill /PID PID /T /F` instead, while `-0` still probes through the runtime |
 | `set` | No operand to list variables; `-- ARG ...` sets positional arguments |
 | `time` | Command and arguments; reports `real` elapsed time in milliseconds, with each decimal magnitude group shown in a different color |
 | `yes` | Optional output words; no flags |
@@ -661,6 +797,48 @@ unquoted `=on` / `=/index.html` / `=1` forms above work directly from a
 shell, no manual `--define 'process.env.SERVE_AUTO_OPEN="/index.html"'`
 quoting required.
 
+### The `curl` command
+
+`curl [options] URL...` transfers a URL over HTTP or HTTPS on top of Bun's own
+`fetch`, so a device with no `curl` binary can still run the download and API
+scripts that expect one. It is a PATH-fallback builtin: a real `curl` in
+`PATH` wins unless it is invoked as `builtin curl ...`.
+
+- A URL with no scheme gets one — `http://` normally, `https://` when the port
+  is `443`, or whatever `--proto-default` names — so `curl localhost:8080` and
+  `curl example.com/page` work as they do with the real curl.
+- Downloads: `-o`, `-O`, `-J`, `--output-dir`, `--create-dirs`, `-a`, and
+  `-C -` resume through a `Range` request, appending on `206`, rewriting on a
+  `200` that ignored the range, and stopping cleanly on `416`.
+- Requests: `-X`, `-H`, `-d`/`--data-raw`/`--data-binary`/`--data-ascii`,
+  `--data-urlencode`, `--json`, `-G`, `-F`/`--form-string`, `-T`, `-u`,
+  `--oauth2-bearer`, `-A`, `-e`, `-b`, `-r`, `--compressed`, and `-x`.
+  `@file` and `@-` read a body from a file or stdin.
+- Responses: `-i`, `-I`, `-D`, `-w` with the usual `%{variable}` set, `-L`
+  with `--max-redirs` and the `301`/`302`/`303` POST-to-GET rule, `-f`,
+  `--fail-with-body`, `-k`, `-m`, `--connect-timeout`, and `--retry`.
+- Reporting: `-s`, `-S`, `-v`, `-#`, and a curl-shaped progress meter, shown
+  only when the body is not being painted on the terminal.
+- curl's exit codes are reproduced: `22` for `-f` on an HTTP error, `6` for an
+  unresolved host, `7` for a refused connection, `28` for a timeout, `47` for
+  too many redirects, `60` for a certificate problem, `2` for bad usage.
+- Bodies are streamed, so `curl -N` on a server-sent-events endpoint prints
+  each chunk as it arrives, and a large download never buffers in memory.
+
+Enough to drive a JSON API:
+
+```sh
+curl -sS https://api.openai.com/v1/chat/completions \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}'
+```
+
+Response headers come from `fetch`, which lower-cases them and hides the
+negotiated HTTP version, so `-i`/`-I`/`-v` rebuild the conventional casing and
+write `HTTP/1.1` status lines; Bun also adds a `Connection: keep-alive`
+request header of its own. `builtin curl --help` documents the rest.
+
 ### PATH-fallback builtins
 
 Fallback builtins normally let an executable in `PATH` win. To use the fancy
@@ -670,6 +848,7 @@ aliases that explicitly select the builtin commands:
 ```sh
 alias cat='builtin catfancy'
 alias ls='builtin lsfancy'
+alias ps='builtin pspac'
 ```
 
 After that, `cat README.md` renders Markdown with ANSI styling and terminal
@@ -701,10 +880,13 @@ hyperlinks, while `ls` uses the emoji and terminal-width-aware listing. Use
 | `ln` | `-s`, `-f`, `-T`, combinable (including `-sfT`) |
 | `chmod` | Octal modes, `+x`, `a+x` |
 | `uname` | `-a`, `-s`, `-n`, `-r`, `-v`, `-m`, `-p`, combinable (including `-mprs`); uses Node's OS APIs on Windows without `/proc` |
+| `pspa` | Lists every process as a PID and its full command line, with no options; `ps -eo pid,args` passed through on POSIX, the same two columns queried from `Win32_Process` through PowerShell on Windows |
+| `pspac` | The same listing, coloured: the PID as a number, and the command line highlighted as shell syntax with micro's `syntax/sh.yaml` rules and `colorschemes/monokai.micro` colours, plus a dimmed leading directory and the program's own name coloured as the command it is. Always colours, like `catfancy`; strip the colour and the output is `pspa`'s |
 | `find` | Paths plus `-name`, `-iname`, `-path`, `-ipath`, `-type f/d/l`, `-mindepth`, `-maxdepth`, `-print`, `-print0`, `!`/`-not`, `-exec COMMAND {} \;`, `-exec COMMAND {} +`; regular builtin on Windows, PATH fallback elsewhere |
 | `bunmsh` | Forwards all following arguments to this bunmsh entry point |
 | `bun` | Forwards all following arguments to the active Bun runtime |
 | `serve` | Auto-open, minapk WebView, and high-entropy random-URL flags; see [The `serve` command](#the-serve-command) above |
+| `curl` | HTTP/HTTPS transfers on Bun's `fetch`, with automatic scheme guessing; `-o`, `-O`, `-J`, `--output-dir`, `--create-dirs`, `-a`, `-C`, `-D`, `-i`, `-I`, `-w`, `-X`, `-H`, `-d`, `--data-raw`, `--data-binary`, `--data-ascii`, `--data-urlencode`, `--json`, `-G`, `-F`, `--form-string`, `-T`, `-u`, `--oauth2-bearer`, `-A`, `-e`, `-b`, `-r`, `--compressed`, `-x`, `-L`, `--location-trusted`, `--max-redirs`, `-f`, `--fail-with-body`, `-k`, `-m`, `--connect-timeout`, `--retry` and friends, `-s`, `-S`, `-v`, `-#`, `--no-progress-meter`, `-V`, `--url`, `--proto-default`, combinable short clusters (`-kLO`, `-fsSL`, `-kfsS`, `-#k`); TLS-material and connection-tuning options are parsed and ignored; see [The `curl` command](#the-curl-command) above |
 | `ls`, `lsfancy` | The `ls` fallback is `lsfancy`: emoji and terminal-width-aware directory listing; `-a`, `-A`, `-d`, `-l`, `-h`, `-t`, `-r`, `-R`, `-S`, `-1`, `-F`, combinable (including `-lh`, `-ltr`, and `-lSF`); `-l` shows a symlink's target (`link -> target`, including a broken one), and a symlink whose target can't be resolved (missing, or a cycle) gets a 🚫 icon instead of 🔗; `-F` appends a classify suffix (`/` directory, `@` symlink, `*` executable, `=` socket, `\|` FIFO); always reads the directory without using the completion cache |
 | `lsbun` | Bun Shell's own `ls`, kept reachable under this name now that the `ls` fallback is `lsfancy`; currently implements `-a`, `-A`, `-d`, `-l`, `-R` |
 | `mv` | Bun Shell currently accepts `-f`, `-h`, `-i`, `-n`, `-v`, but they do not change its behaviour; notably, `-i` and `-n` do not prevent overwriting |
@@ -742,11 +924,17 @@ detailed compatibility snapshot.
 - Regular builtins, system-command-first fallback builtins, Bun Shell fallbacks,
   and explicit lookup through `command`, `builtin`, `whence`, `type`, and
   `which`.
-- Interactive history import/save/recall, command and file completion, ghost
+- Interactive history import/save/recall, command, file, and shell-variable
+  completion, ghost
   suggestions, cwd tabs, keyboard shortcuts, optional mouse interactions,
   fancy directory listings, and a `PS2` continuation prompt while a
   here-document, an open quote/substitution, or an unfinished compound
   command is still being typed.
+- A `curl` fallback built on `fetch`, covering downloads with resume, JSON and
+  form request bodies, redirects, timeouts, retries, `--write-out` reporting,
+  and curl's exit codes.
+- A `pspa` process listing that works the same way on POSIX and Windows, and a
+  `pspac` that colours it as shell syntax.
 - Linux, Android/Termux, macOS, and Windows-aware paths, plus standalone builds
   and dynamic-linker re-execution support.
 
@@ -771,6 +959,17 @@ bunmsh --changelog
 Both commands read their embedded copy first when running a standalone
 executable, then fall back to `README.md` or `CHANGELOG.md` in the repository
 during development.
+
+Every builtin's `--help` page lives in `help/`, and `help/README.md` is the
+concatenation of all of them. Regenerate it with the shell's own `cat` after
+adding or editing a page:
+
+```sh
+bun run genallhelp
+```
+
+which runs `builtin cat --exclude help/README.md help/*.md` and writes the
+result back over `help/README.md`.
 
 ## Standalone executable
 
@@ -799,3 +998,45 @@ The original bunmsh JavaScript implementation is released under the
 
 mksh is a separate upstream project and is **not** relicensed under MIT. Its
 complete licence terms remain in [LICENSE-MKSH](LICENSE-MKSH).
+
+### Syntax highlighting
+
+The shell-syntax colouring `pspac` applies to the COMMAND column follows
+`runtime/syntax/sh.yaml` from [micro](https://github.com/zyedidia/micro), the
+Go terminal editor. Nothing is bundled: its rules — the keyword,
+command-name, flag, variable, string, and comment patterns, the word lists
+behind them, and the order they resolve in — were transcribed into
+`src/shell.js`. Micro's syntax files are MIT ("Expat"), Copyright (c) 2020:
+Zachary Yedidia, et al.; micro's own `syntax/README.md` records that they
+originate from Nano's [`nanorc`](https://github.com/scopatz/nanorc)
+collection.
+
+The colours those classes are painted in are the colour-links of micro's
+`runtime/colorschemes/monokai.micro` — micro itself is MIT, Copyright (c)
+2016-2020: Zachary Yedidia, et al. — which renders the Monokai palette created
+by Wimer Hazenberg. `catfancy` takes five of the same colour-links for its
+JSON keys, strings, numbers, escapes, and constants, so both commands read as
+one scheme rather than two.
+
+Micro's terms are in [LICENSE-MICRO](LICENSE-MICRO); upstream they are
+`runtime/syntax/LICENSE` and `LICENSE` in
+[zyedidia/micro](https://github.com/zyedidia/micro), which is where to trace
+either of them from.
+
+### Licences in a compiled executable
+
+`LICENSE`, `LICENSE-MKSH`, and `LICENSE-MICRO` are packaged assets, so a
+standalone build carries them inside the binary rather than leaving the notices
+behind in the repository. Reading them back depends on which asset back end the
+build used:
+
+```sh
+./bmsh --assets-extract               # tar back end (the default)
+./bmsh -cc builtin serve 'B:/~BUN'    # ASSETS_BUNFS=1 build
+```
+
+[`--assets-extract`](#standalone-executable) writes every asset beside the
+executable, licences included, under `assets/bunmsh@<version>/`. For a bunfs
+build, [serving `B:/~BUN`](#serving-a-folder-packed-into-the-executable)
+browses the binary's own virtual root, where the same files sit under
+`/assets/bunmsh@<version>/`.

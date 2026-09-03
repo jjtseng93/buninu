@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -673,5 +673,131 @@ describe("concurrent streaming pipelines", () => {
       "head -c 1048576 /dev/zero | tr '\\0' x | wc -c",
     );
     expect(output).toEqual({ status: 0, stdout: "1048576\n", stderr: "" });
+  });
+});
+
+//  The fallback `curl` is only worth having if a script cannot tell it apart
+//  from the real one, so the parts that can be compared byte for byte are:
+//  the body, the exit code, and whatever --write-out reports. Response header
+//  order and casing come from fetch rather than the wire, so `-i` output is
+//  compared after normalisation instead.
+describe("system curl reference", () => {
+  const systemCurl = Bun.which("curl");
+  let server;
+  let origin;
+
+  beforeAll(() => {
+    server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        switch (url.pathname) {
+          case "/text": return new Response("hello\n");
+          case "/query": return new Response(`${url.search}\n`);
+          case "/method": return new Response(`${request.method}\n`);
+          case "/body": return new Response(await request.text());
+          case "/missing": return new Response("missing\n", { status: 404 });
+          case "/redirect":
+            return new Response(null, { status: 302, headers: { Location: "/method" } });
+          case "/blob": return new Response(Buffer.alloc(65536, "b"));
+          default: return new Response("not found\n", { status: 404 });
+        }
+      },
+    });
+    origin = `localhost:${server.port}`;
+  });
+
+  afterAll(() => server?.stop(true));
+
+  async function expectLikeCurl(args, transform = (output) => output) {
+    const [actual, reference] = await Promise.all([
+      invokeArgvWithInput(
+        [process.execPath, join(root, "src/main.js"), "-cc", "builtin", "curl", ...args],
+        "",
+      ),
+      invokeArgvWithInput([systemCurl, ...args], ""),
+    ]);
+    expect(transform(actual)).toEqual(transform(reference));
+  }
+
+  test.skipIf(!systemCurl)("matches bodies, statuses, and the guessed scheme", async () => {
+    await expectLikeCurl(["-s", `${origin}/text`]);
+    await expectLikeCurl(["-s", `http://${origin}/text`]);
+    await expectLikeCurl(["-s", `${origin}/missing`]);
+    await expectLikeCurl(["-s", `${origin}/nowhere`]);
+  });
+
+  test.skipIf(!systemCurl)("matches the tmpk download and probe invocations", async () => {
+    await expectLikeCurl(["-fsSL", `${origin}/text`]);
+    await expectLikeCurl(["-kfsS", `${origin}/text`]);
+    await expectLikeCurl(["-sk", `${origin}/blob`]);
+    //  `-#` paints a live bar whose bytes depend on timing; only the body
+    //  and the status are comparable.
+    await expectLikeCurl(["-#k", `${origin}/text`], ({ status, stdout }) => ({ status, stdout }));
+  });
+
+  test.skipIf(!systemCurl)("matches -f and error exit codes", async () => {
+    await expectLikeCurl(["-sf", `${origin}/missing`]);
+    await expectLikeCurl(["-sSf", `${origin}/missing`]);
+    await expectLikeCurl(["-s", "--fail-with-body", `${origin}/missing`]);
+    await expectLikeCurl(["-s", "http://localhost:1/"]);
+    await expectLikeCurl(["-s", "http://no-such-host-zzz.invalid/"]);
+    await expectLikeCurl(["-sS", "http://no-such-host-zzz.invalid/"]);
+    await expectLikeCurl(["--bogus", `${origin}/text`]);
+    await expectLikeCurl([]);
+  });
+
+  test.skipIf(!systemCurl)("matches redirect following and the method it lands on", async () => {
+    await expectLikeCurl(["-s", `${origin}/redirect`]);
+    await expectLikeCurl(["-sL", `${origin}/redirect`]);
+    await expectLikeCurl(["-sL", "-d", "a=1", `${origin}/redirect`]);
+  });
+
+  test.skipIf(!systemCurl)("matches the request bodies an API call sends", async () => {
+    await expectLikeCurl(["-s", "-d", "a=1", "-d", "b=2", `${origin}/body`]);
+    await expectLikeCurl(["-s", "--data-raw", '{"a":1}', `${origin}/body`]);
+    await expectLikeCurl(["-s", "--json", '{"a":1}', `${origin}/body`]);
+    await expectLikeCurl(["-s", "--data-urlencode", "q=a b&c", `${origin}/body`]);
+    await expectLikeCurl(["-s", "-X", "PUT", "-d", "x", `${origin}/method`]);
+    await expectLikeCurl(["-s", "-G", "-d", "a=1", "-d", "b=2", `${origin}/query`]);
+    await expectLikeCurl(["-s", "-G", "--data-urlencode", "q=a b", `${origin}/query`]);
+  });
+
+  test.skipIf(!systemCurl)("matches --write-out reporting", async () => {
+    await expectLikeCurl([
+      "-s", "-o", "/dev/null", "-w", "%{http_code} %{size_download} %{content_type}\\n",
+      `${origin}/text`,
+    ]);
+    await expectLikeCurl([
+      "-sf", "-w", "%{http_code} %{exitcode}\\n", `${origin}/missing`,
+    ]);
+    await expectLikeCurl([
+      "-s", "-o", "/dev/null", "-L", "-w", "%{url_effective} %{num_redirects} %{method}\\n",
+      `${origin}/redirect`,
+    ]);
+  });
+
+  test.skipIf(!systemCurl)("matches -i once header order and casing are normalised", async () => {
+    //  fetch hands back lower-cased headers in its own order and hides the
+    //  negotiated HTTP version, so compare the status line plus a sorted,
+    //  lower-cased header set — the values themselves still have to agree.
+    const normalize = ({ status, stdout, stderr }) => {
+      const split = stdout.indexOf("\r\n\r\n");
+      const head = stdout.slice(0, split).split("\r\n");
+      const body = stdout.slice(split + 4);
+      return {
+        status,
+        stderr,
+        body,
+        statusLine: head[0],
+        headers: head.slice(1)
+          .map((line) => line.toLowerCase())
+          //  Date moves on between the two requests.
+          .filter((line) => !line.startsWith("date:"))
+          .sort(),
+      };
+    };
+    await expectLikeCurl(["-si", `${origin}/text`], normalize);
+    await expectLikeCurl(["-sI", `${origin}/text`], normalize);
   });
 });
