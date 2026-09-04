@@ -144,7 +144,11 @@ if (needsInstall(bunInstallRoot, target, version, pkgName)) {
   const install = Bun.spawnSync(installArgs, {
     stdio: ["inherit", "inherit", "inherit"],
   });
-  if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
+  
+  // Don't check exit code so even if
+  // bun install killed by SIGSYS @issue #39060
+  // bunx still runs with actually existing bin
+  //if (install.exitCode !== 0) process.exit(install.exitCode ?? 1);
 }
 
 if (!fs.existsSync(target)) {
