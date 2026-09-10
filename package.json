@@ -25,7 +25,8 @@
     },
     "exitAfterCmd": false,
     "backToConsole": true,
-    "xdgDataHome": null
+    "xdgDataHome": null,
+    "hideExtraKeys":false
   },
   "scripts": {
     "start": "bun ./apps/jsgotty/gotty.js --reconnect -r -w --webgl -a 127.0.0.1",

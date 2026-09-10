@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.3 - 2026-09-10
+
+### Changed
+
+- Sync bunmsh to 0.3.5
+- Sync jsgotty to 1.1.11
+  * Security fix CSWSH 
+- Sync jsmdcui to 0.19.1
+  * Security fix CSWSH for CDP server
+
 ## 0.4.2 - 2026-09-03
 
 ### Changed
