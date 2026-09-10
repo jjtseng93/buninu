@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.4.3 - 2026-09-10
+## 0.4.5 - 2026-09-10
+
+0.4.4 is intentionally skipped 不吉利
 
 ### Changed
 
@@ -9,6 +11,10 @@
   * Security fix CSWSH 
 - Sync jsmdcui to 0.19.1
   * Security fix CSWSH for CDP server
+
+## 0.4.3 - 2026-09-05
+
+- Don't check exit status for bunx
 
 ## 0.4.2 - 2026-09-03
 
