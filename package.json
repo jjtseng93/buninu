@@ -1,6 +1,6 @@
 {
   "name": "buninu",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Buninu is a portable, self-bootstrapping Unix-like userspace built on Bun that runs across operating systems",
   "type": "module",
   "main": "./bin/init.js",
@@ -26,7 +26,7 @@
     "exitAfterCmd": false,
     "backToConsole": true,
     "xdgDataHome": null,
-    "hideExtraKeys":false
+    "hideExtraKeys": false
   },
   "scripts": {
     "start": "bun ./apps/jsgotty/gotty.js --reconnect -r -w --webgl -a 127.0.0.1",
