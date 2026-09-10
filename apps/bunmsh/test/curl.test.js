@@ -252,7 +252,7 @@ describe("curl transfers", () => {
     expect(unsupported.status).toBe(1);
     expect(unsupported.stderr)
       .toBe('curl: (1) Protocol "ftp" not supported or disabled in libcurl\n');
-  });
+  }, 10_000);
 });
 
 describe("curl file output", () => {

@@ -1,16 +1,16 @@
 {
   "name": "bunmsh",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "description": "Cross-platform command shell for Bun JavaScript",
   "license": "MIT",
   "type": "module",
   "main": "./src/main.js",
   "bin": {
-    "bunmsh": "./src/main.js"
+    "bunmsh": "./index.js"
   },
   "scripts": {
     "start": "bun ./src/main.js",
-    "test": "bun test",
+    "test": "bun test --parallel=4",
     "genallhelp": "bun ./src/main.js -c 'builtin cat --exclude help/README.md help/*.md' > help/README.md"
   },
   "keywords": [

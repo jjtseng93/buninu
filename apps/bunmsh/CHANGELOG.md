@@ -2,6 +2,40 @@
 
 All notable user-visible changes to bunmsh are documented here.
 
+## [0.3.5] - 2026-09-09
+
+Version 0.3.4 was intentionally skipped because the number four is considered
+unlucky in Chinese culture, so this release advances directly from 0.3.3 to
+0.3.5.
+
+### Fixed
+
+- Point the npm `bunmsh` bin at a new package-root `index.js` trampoline,
+  which immediately loads the real `src/main.js` entry point. On affected Bun
+  versions, validating a bin target below the package root goes through
+  `openat2`; Android can reject that syscall with `SIGSYS`, leaving an
+  otherwise successful install without its bin link. Keeping the declared bin
+  target at the package root avoids that path while preserving `src/main.js`
+  as the implementation entry point.
+
+- Make the test suite portable between native Android and PRoot. Redirect
+  tests now create isolated directories below `os.tmpdir()` instead of
+  assuming `/tmp` is writable or empty, terminal assertions compare visible
+  text after `Bun.stripANSI()` instead of requiring one exact repaint
+  sequence, and true terminal behaviour is exercised through `Bun.Terminal`.
+  Negative-DNS curl checks run in parallel and have explicit timeouts because
+  PRoot resolution takes about five seconds while native Android returns
+  immediately.
+
+### Changed
+
+- Split the former `shell.test.js` into `shell1.test.js`, `shell2.test.js`, and
+  `shell3.test.js`, and run test files with `bun test --parallel=4`. This keeps
+  the suite isolated and stable while reducing the measured run from roughly
+  37 to 17 seconds under PRoot and from roughly 23 to 9 seconds on native
+  Android. Test-case-level `--concurrent` is deliberately not used because
+  cwd-changing and PTY tests share process-global state.
+
 ## [0.3.3] - 2026-09-03
 
 ### Fixed

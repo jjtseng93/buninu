@@ -31,6 +31,18 @@ async function expectLikeSh(source, env, args) {
   expect(actual).toEqual(reference);
 }
 
+async function expectLikeShInTemp(source) {
+  const directory = mkdtempSync(join(tmpdir(), "bunmsh-reference-"));
+  try {
+    await expectLikeSh(source, {
+      ...process.env,
+      BUNMSH_TEST_TMPDIR: directory,
+    });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 async function invokeInternal(source, options = {}) {
   const state = createState(options);
   const output = await execute(source, state, { capture: true });
@@ -590,7 +602,7 @@ describe("CLI direct argv forwarding", () => {
 
   test("-cc without a command is a usage error", async () => {
     const output = await invoke([process.execPath, "src/main.js"], "-cc");
-    expect(output).toEqual({
+    expect({ ...output, stderr: Bun.stripANSI(output.stderr) }).toEqual({
       status: 2,
       stdout: "",
       stderr: "bunmsh: -cc requires a command\n",
@@ -614,29 +626,29 @@ describe("concurrent streaming pipelines", () => {
   });
 
   test("matches /bin/sh for streamed stdout overwrite and append redirects", async () => {
-    await expectLikeSh(
-      "out=/tmp/bunmsh-redirect-$$; printf first > \"$out\"; " +
+    await expectLikeShInTemp(
+      "out=$BUNMSH_TEST_TMPDIR/redirect; printf first > \"$out\"; " +
         "printf second >> \"$out\"; cat \"$out\"; rm \"$out\"",
     );
   });
 
   test("matches /bin/sh for a streamed stderr redirect", async () => {
-    await expectLikeSh(
-      "out=/tmp/bunmsh-stderr-$$; sh -c 'printf error >&2' 2> \"$out\"; " +
+    await expectLikeShInTemp(
+      "out=$BUNMSH_TEST_TMPDIR/stderr; sh -c 'printf error >&2' 2> \"$out\"; " +
         "cat \"$out\"; rm \"$out\"",
     );
   });
 
   test("matches /bin/sh when a redirect overrides the pipeline output", async () => {
-    await expectLikeSh(
-      "out=/tmp/bunmsh-override-$$; printf file > \"$out\" | cat; " +
+    await expectLikeShInTemp(
+      "out=$BUNMSH_TEST_TMPDIR/override; printf file > \"$out\" | cat; " +
         "printf :; cat \"$out\"; rm \"$out\"",
     );
   });
 
   test("streams a large redirect without collecting command output", async () => {
-    await expectLikeSh(
-      "out=/tmp/bunmsh-large-$$; head -c 1048576 /dev/zero > \"$out\"; " +
+    await expectLikeShInTemp(
+      "out=$BUNMSH_TEST_TMPDIR/large; head -c 1048576 /dev/zero > \"$out\"; " +
         "wc -c < \"$out\"; rm \"$out\"",
     );
   });
@@ -741,11 +753,13 @@ describe("system curl reference", () => {
     await expectLikeCurl(["-sSf", `${origin}/missing`]);
     await expectLikeCurl(["-s", "--fail-with-body", `${origin}/missing`]);
     await expectLikeCurl(["-s", "http://localhost:1/"]);
-    await expectLikeCurl(["-s", "http://no-such-host-zzz.invalid/"]);
-    await expectLikeCurl(["-sS", "http://no-such-host-zzz.invalid/"]);
+    await Promise.all([
+      expectLikeCurl(["-s", "http://no-such-host-zzz.invalid/"]),
+      expectLikeCurl(["-sS", "http://no-such-host-zzz.invalid/"]),
+    ]);
     await expectLikeCurl(["--bogus", `${origin}/text`]);
     await expectLikeCurl([]);
-  });
+  }, 10_000);
 
   test.skipIf(!systemCurl)("matches redirect following and the method it lands on", async () => {
     await expectLikeCurl(["-s", `${origin}/redirect`]);
