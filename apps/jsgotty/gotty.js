@@ -800,6 +800,28 @@ function basicAuthAuthorized(req, credential) {
   return payload === credential;
 }
 
+// Match gorilla/websocket's default policy used by upstream GoTTY: non-browser
+// clients without Origin are accepted, while browser connections must come
+// from the same host. --ws-origin intentionally replaces this default check.
+function webSocketOriginAllowed(req, originMatcher = null) {
+  const origin = req.headers.origin;
+
+  if (originMatcher) {
+    return originMatcher.test(origin || "");
+  }
+  if (!origin) {
+    return true;
+  }
+
+  try {
+    const originHost = new URL(origin).host;
+    const requestHost = req.headers.host || "";
+    return originHost !== "" && originHost.toLowerCase() === requestHost.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 function sendBasicAuthRequired(res) {
   res.writeHead(401, {
     "WWW-Authenticate": 'Basic realm="GoTTY"',
@@ -2940,12 +2962,9 @@ function createServerRuntime(command, argv, options) {
       return;
     }
 
-    if (originMatcher) {
-      const origin = req.headers.origin || "";
-      if (!originMatcher.test(origin)) {
-        socket.destroy();
-        return;
-      }
+    if (!webSocketOriginAllowed(req, originMatcher)) {
+      socket.destroy();
+      return;
     }
 
     if (options.once && acceptedOnce && !options.reconnect) {
@@ -3295,6 +3314,7 @@ async function bootstrap() {
 
 module.exports.CursorStateTracker = CursorStateTracker;
 module.exports.KittyGraphicsParser = KittyGraphicsParser;
+module.exports.webSocketOriginAllowed = webSocketOriginAllowed;
 
 if (require.main === module) {
   if (KITTY_TRACE) {
