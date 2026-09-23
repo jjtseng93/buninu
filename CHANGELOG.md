@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.16 - 2026-09-22
+
+- Update homepage to <https://buninu.org>
+
 ## 0.4.15 - 2026-09-22
 
 ### Changed
