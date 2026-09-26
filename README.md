@@ -23,6 +23,7 @@ npx buninu
 > (`--local`, bunmsh) has no job control yet, so use the browser terminal when
 > you need to background a job.
 
+- Homepage: <https://buninu.org>
 - Source: [github.com/jjtseng93/buninu](https://github.com/jjtseng93/buninu)
 
 - Core components:
