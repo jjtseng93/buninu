@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.21 - 2026-10-15
+
+- Sync jsgotty to 1.1.16: Turn on pixel report
+
 ## 0.4.20 - 2026-10-13
 
 - Sync bunmsh to 0.4.0:
