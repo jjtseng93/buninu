@@ -3236,7 +3236,7 @@ async function runAwkFallback(argv, state, input) {
         try {
           const file=resolvePath(directory,"state.json");
           writeFileSync(file,pipelineBuiltinState(state).env[PIPELINE_STATE_ENV],{mode:0o600});
-          const p=Bun.spawnSync([process.execPath,BUNMSH_ENTRY,"-c",command],{
+          const p=Bun.spawnSync(pipelineCompoundArgv(command),{
             cwd:nativePath(state.cwd),env:{...externalEnvironment(state),[PIPELINE_STATE_ENV]:`@file:${file}`},
             stdin:bytes(text),stdout:"pipe",stderr:"pipe"});
           if(p.error)throw p.error;
