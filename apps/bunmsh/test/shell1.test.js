@@ -372,6 +372,11 @@ describe("execution", () => {
     expect(bunShellFallbackArgv(["rm", ".\\file"], "C:/")).toEqual(["rm", "C:\\file"]);
   });
 
+  test("Windows builtin mv anchors ./ source and destination operands", () => {
+    expect(bunShellFallbackArgv(["mv", "./a", "./b"], "C:/work"))
+      .toEqual(["mv", "C:\\work\\a", "C:\\work\\b"]);
+  });
+
   test("builtin rm removes a ./ path relative to the shell cwd", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bunmsh-rm-dot-"));
     try {

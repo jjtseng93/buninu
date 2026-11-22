@@ -1037,7 +1037,7 @@ function result(status = 0, stdout = "", stderr = "") {
 
 function quoteShellWord(value) {
   return `'${String(value).replaceAll("'", `'\\''`)}'`;
-}
+} // `
 
 function findExecutable(name, state, defaultPath = false) {
   if (!state.pathSearch) return null;
@@ -1949,7 +1949,7 @@ export function bunShellFallbackArgv(argv, windowsCwd) {
     commandArgv = [...argv.slice(0, end), ...argv.slice(end + 1).map(value =>
       value.startsWith("-") ? `./${value}` : value)];
   }
-  if (argv[0] === "rm" && windowsCwd) {
+  if (["rm", "mv"].includes(argv[0]) && windowsCwd) {
     // Bun passes the leading dot component to NtCreateFile. Anchor an explicit
     // current-directory operand to the shell cwd; "./-f" must stay an operand.
     const base = windowsCwd.replaceAll("/", "\\").replace(/[\\]+$/, "");
