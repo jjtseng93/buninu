@@ -53,7 +53,7 @@
   },
   "scripts": {
     "start": "bun ./apps/jsgotty/gotty.js --reconnect -r -w --webgl -a 127.0.0.1",
-    "local": "bun ./apps/bunmsh/index.js -c 'exec bunmsh'",
+    "local": "bun ./apps/bunmsh/index.js",
     "check": "node --check ./bin/init.js"
   }
 }
