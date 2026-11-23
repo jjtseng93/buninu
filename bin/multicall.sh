@@ -1,6 +1,16 @@
 #!/bin/sh
 
-if [ -f /proc/$$/cmdline ] ; then
+buninu_windows_loader=
+if [ -n "$BUNINU_SH_CALLER" ] ; then
+  buninu_windows_loader=1
+  # The native Windows loader preserves its name before choosing multicall.sh.
+  caller=$(printf '%s' "$BUNINU_SH_CALLER" | tr '\\' '/')
+  callerb=$(basename "$caller")
+  case "$callerb" in
+    *.[eE][xX][eE]) callerb=${callerb%.*} ;;
+  esac
+  unset BUNINU_SH_CALLER
+elif [ -f /proc/$$/cmdline ] ; then
   args=$(tr '\0' '\n' < /proc/$$/cmdline)
   caller=$(printf '%s\n' "$args" | head -n 1)
 
@@ -27,12 +37,20 @@ sd=$(dirname "$(realpath "$0")")
 
 prog_base=$sd/../apps/$callerb/$callerb
 
+run_script() {
+  if [ -n "$buninu_windows_loader" ] ; then
+    exec bun "$sd/../apps/bunmsh/index.js" "$@"
+  else
+    exec /bin/sh "$@"
+  fi
+}
+
 # echo $prog_base
 
 if [ -f "$sd/$callerb.sh" ] ; then
-  exec /bin/sh "$sd/$callerb.sh" "$@"
+  run_script "$sd/$callerb.sh" "$@"
 elif [ -f "$prog_base".sh ] ; then
-  exec /bin/sh "$prog_base".sh "$@"
+  run_script "$prog_base".sh "$@"
 elif [ -f "$prog_base".js ] ; then
   exec bun "$prog_base".js "$@"
 elif [ -f "$prog_base".mjs ] ; then
