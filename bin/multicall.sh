@@ -37,20 +37,21 @@ sd=$(dirname "$(realpath "$0")")
 
 prog_base=$sd/../apps/$callerb/$callerb
 
-run_script() {
-  if [ -n "$buninu_windows_loader" ] ; then
-    exec bun "$sd/../apps/bunmsh/index.js" "$@"
-  else
-    exec /bin/sh "$@"
-  fi
-}
-
-# echo $prog_base
-
+script=
 if [ -f "$sd/$callerb.sh" ] ; then
-  run_script "$sd/$callerb.sh" "$@"
+  script=$sd/$callerb.sh
 elif [ -f "$prog_base".sh ] ; then
-  run_script "$prog_base".sh "$@"
+  script=$prog_base.sh
+fi
+
+# Keep exec at top level: bunmsh currently captures shell-function output,
+# which would turn an interactive application's stdout into a pipe.
+if [ -n "$script" ] ; then
+  if [ -n "$buninu_windows_loader" ] ; then
+    exec bun "$sd/../apps/bunmsh/index.js" "$script" "$@"
+  else
+    exec /bin/sh "$script" "$@"
+  fi
 elif [ -f "$prog_base".js ] ; then
   exec bun "$prog_base".js "$@"
 elif [ -f "$prog_base".mjs ] ; then
