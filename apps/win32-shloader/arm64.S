@@ -129,15 +129,30 @@ close_bun_quote:
     str w9, [x25]
     mov w9, #256
     str w9, [x25, #60]
-    mov w0, #-10
+    /* Duplicate valid standard handles as inheritable; preserve absent ones. */
+    add x27, x25, #80
+    mov w28, #-10
+copy_std_handle:
+    mov w0, w28
     api GetStdHandle
-    str x0, [x25, #80]
-    mov w0, #-11
-    api GetStdHandle
-    str x0, [x25, #88]
-    mov w0, #-12
-    api GetStdHandle
-    str x0, [x25, #96]
+    str x0, [x27]
+    cbz x0, next_std_handle
+    cmn x0, #1
+    b.eq next_std_handle
+    mov x1, x0
+    mov x0, #-1
+    mov x2, #-1
+    mov x3, x27
+    mov w4, #0
+    mov w5, #1
+    mov w6, #2
+    api DuplicateHandle
+    cbz w0, win_error
+next_std_handle:
+    add x27, x27, #8
+    sub w28, w28, #1
+    cmn w28, #13
+    b.ne copy_std_handle
 
     address x0, bun
     address x1, command
@@ -152,6 +167,19 @@ close_bun_quote:
     str x26, [sp, #8]
     api CreateProcessW
     cbz w0, win_error
+    /* Drop the parent's duplicate handles before waiting for the child. */
+    add x27, x25, #80
+    mov w28, #3
+close_std_handle:
+    ldr x0, [x27]
+    cbz x0, next_close_std
+    cmn x0, #1
+    b.eq next_close_std
+    api CloseHandle
+next_close_std:
+    add x27, x27, #8
+    subs w28, w28, #1
+    b.ne close_std_handle
     ldr x0, [x26, #8]
     api CloseHandle
     ldr x0, [x26]

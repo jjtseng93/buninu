@@ -119,15 +119,33 @@ close_bun_quote:
     call [rip + imp_SetConsoleCtrlHandler]
     mov dword ptr [rip + startup], 104
     mov dword ptr [rip + startup + 60], 256
-    mov ecx, -10
+    /* Standard handles need not already be inheritable (e.g. Bun's console
+     * handles). Duplicate them without changing the caller's handle flags. */
+    lea rbx, [rip + startup + 80]
+    mov r12d, -10
+copy_std_handle:
+    mov ecx, r12d
     call [rip + imp_GetStdHandle]
-    mov [rip + startup + 80], rax
-    mov ecx, -11
-    call [rip + imp_GetStdHandle]
-    mov [rip + startup + 88], rax
-    mov ecx, -12
-    call [rip + imp_GetStdHandle]
-    mov [rip + startup + 96], rax
+    mov [rbx], rax
+    test rax, rax
+    jz next_std_handle
+    cmp rax, -1
+    je next_std_handle
+    mov rcx, -1                /* GetCurrentProcess pseudo handle */
+    mov rdx, rax
+    mov r8, -1
+    mov r9, rbx
+    mov qword ptr [rsp + 32], 0
+    mov qword ptr [rsp + 40], 1 /* inheritable */
+    mov qword ptr [rsp + 48], 2 /* DUPLICATE_SAME_ACCESS */
+    call [rip + imp_DuplicateHandle]
+    test eax, eax
+    jz win_error
+next_std_handle:
+    add rbx, 8
+    dec r12d
+    cmp r12d, -13
+    jne copy_std_handle
 
     lea rcx, [rip + bun]
     lea rdx, [rip + command]
@@ -144,6 +162,21 @@ close_bun_quote:
     call [rip + imp_CreateProcessW]
     test eax, eax
     jz win_error
+    /* Child owns its inherited copies; close ours before waiting, so pipes
+     * can reach EOF as soon as the child closes them. */
+    lea rbx, [rip + startup + 80]
+    mov r12d, 3
+close_std_handle:
+    mov rcx, [rbx]
+    test rcx, rcx
+    jz next_close_std
+    cmp rcx, -1
+    je next_close_std
+    call [rip + imp_CloseHandle]
+next_close_std:
+    add rbx, 8
+    dec r12d
+    jnz close_std_handle
     mov rcx, [rip + process_info + 8]
     call [rip + imp_CloseHandle]
     mov rcx, [rip + process_info]

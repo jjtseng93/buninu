@@ -11,7 +11,7 @@ bun apps/win32-shloader/index.js
 ```
 
 This writes `apps/win32-shloader/build/x64/shloader.exe` and
-`apps/win32-shloader/build/arm64/shloader.exe`. Each is 2,560 bytes. To generate one
+`apps/win32-shloader/build/arm64/shloader.exe`. The x64 launcher is 2,560 bytes; ARM64 is 3,072 bytes. To generate one
 launcher with a particular name:
 
 ```sh
@@ -49,7 +49,10 @@ interpreter and script paths, then retains the original Windows command-line
 tail verbatim for Bun to parse. Embedded NUL is not representable in Windows
 command lines; the completed command line must fit the Windows UTF-16 limit.
 
-Environment, working directory and standard streams are inherited. The launcher
+Environment, working directory and standard streams are inherited. Valid standard
+handles are duplicated as inheritable handles without changing the original
+handles' flags. The parent closes these duplicates immediately after creating
+the child, so they cannot keep redirected pipes open while it waits. The launcher
 sets `BUNINU_SH_CALLER` to its original absolute executable path. The updated
 `multicall.sh` consumes and unsets this internal variable to identify the command
 without `/proc`, stripping `.exe`, and uses bunmsh for nested shell scripts.

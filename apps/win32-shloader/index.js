@@ -10,7 +10,7 @@ const apis = [
   'GetModuleFileNameW', 'GetCommandLineW', 'SetConsoleCtrlHandler',
   'GetStdHandle', 'CreateProcessW', 'CloseHandle', 'WaitForSingleObject',
   'GetExitCodeProcess', 'ExitProcess', 'GetLastError', 'WriteFile',
-  'GetFileAttributesW', 'SetEnvironmentVariableW',
+  'GetFileAttributesW', 'SetEnvironmentVariableW', 'DuplicateHandle',
 ];
 
 
