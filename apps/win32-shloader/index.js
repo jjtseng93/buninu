@@ -14,10 +14,11 @@ const apis = [
 ];
 
 
-export function buildLoader(arch = 'x64', mode = 'shell') {
+// `template` defaults to the checked-in code.js entry; jasm.js passes freshly
+// assembled code in the same {code, relocations} form.
+export function buildLoader(arch = 'x64', mode = 'shell', template = nativeCode[arch]) {
   if (!['shell', 'bun'].includes(mode)) throw new Error('Mode must be shell or bun');
-  const template = nativeCode[arch];
-  if (!template) throw new Error('Architecture must be x64 or arm64');
+  if (!nativeCode[arch] || !template) throw new Error('Architecture must be x64 or arm64');
   const bunName = arch === 'arm64' ? 'bun-wa.exe' : 'bun-wx.exe';
   const message = `buninu shloader: failed; exit code is the Windows error. Check ${bunName} and paths.\r\n`;
   if (Buffer.byteLength(message) !== 86) throw new Error('Update native WriteFile length');

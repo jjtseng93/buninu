@@ -1,5 +1,5 @@
 /* Windows x64 ABI, no CRT. All addresses are RIP-relative.
- * Assembled as an ELF object only to extract code/relocations for the JS builder.
+ * Assembled by jasm.js into code/relocations for the JS PE builder.
  */
 .intel_syntax noprefix
 .text

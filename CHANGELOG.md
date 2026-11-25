@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add `jasm.js`, a pure-JavaScript x64/AArch64 assembler for the Windows EXE
+  launchers:
+  * `refresh-code.js` now uses it instead of Clang, so editing the launcher
+    assembly no longer needs a compiler. `--check` reports a stale `code.js`.
+  * Usable on its own: `bun jasm.js -o out.exe x64.S` writes a launcher, and
+    `.json`, `.js` and `.bin` outputs are also available.
+  * Matches Clang's integrated assembler byte for byte on `x64.S`, `arm64.S`
+    and new instruction corpora, including relocations and jump relaxation.
+
 ## 0.7.5 - 2026-11-24
 
 - Fix standard-stream inheritance in the Windows x64 and ARM64 EXE launchers:

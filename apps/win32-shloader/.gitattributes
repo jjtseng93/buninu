@@ -1,0 +1,3 @@
+# Source hashes and the generated template are compared byte for byte.
+/*.S text eol=lf
+/code.js text eol=lf

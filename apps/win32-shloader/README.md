@@ -127,14 +127,37 @@ or a cold-start guarantee.
 their instruction bytes, relocation descriptions and source hashes. The JS PE
 writer supplies imports, constant strings and zero-initialized buffers.
 
-After editing assembly, maintainers can regenerate `code.js` using a Clang build
-with x86-64 and AArch64 assembler support:
+After editing assembly, regenerate `code.js` with the bundled pure-JavaScript
+assembler, `jasm.js`. No compiler is needed for this step either:
 
 ```sh
-bun apps/win32-shloader/refresh-code.js
+bun apps/win32-shloader/refresh-code.js          # rewrite code.js
+bun apps/win32-shloader/refresh-code.js --check  # exit 1 if code.js is stale
 ```
 
-That maintainer step requires Clang; normal executable generation does not.
+### jasm.js
+
+`jasm.js` assembles the x64 (GNU `.intel_syntax noprefix`) and AArch64 subset
+used here, plus common integer instructions, and can be used on its own:
+
+```sh
+bun apps/win32-shloader/jasm.js -o build/jmi.exe apps/win32-shloader/x64.S
+bun apps/win32-shloader/jasm.js --mode=bun -o build/bun.exe apps/win32-shloader/arm64.S
+bun apps/win32-shloader/jasm.js -l apps/win32-shloader/arm64.S   # listing
+```
+
+The output extension selects the format: `.exe` (this launcher's PE32+ layout),
+`.json` (a `code.js` template), `.js` (a whole `code.js` from several inputs) or
+`.bin` (raw `.text`). The architecture is taken from `--arch`, then
+`.intel_syntax`, then the file name. `.exe` output links against the imports,
+strings and buffers that `index.js` supplies, so it is not a general linker.
+
+Its output equals Clang's integrated assembler byte for byte: the checked-in
+`code.js`, and the instruction corpora in `test/jasm/`, whose expected bytes and
+ELF-numbered relocations were recorded once from Clang 19.1.7. That includes x64
+short/near jump relaxation and LLVM's NOP padding. Supported directives are
+`.text`, `.global`, `.macro`/`.endm`, `.equ`/`.set`, data, string, `.zero`
+and alignment directives; other sections and AT&T syntax are rejected.
 
 Generate the direct Bun launcher independently with `--mode=bun`; the default
 `shell` mode remains the tool launcher. PATH order is unchanged: existing PATH
